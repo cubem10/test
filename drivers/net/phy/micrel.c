@@ -29,7 +29,6 @@
 #include <linux/micrel_phy.h>
 #include <linux/of.h>
 #include <linux/clk.h>
-#include <linux/delay.h>
 
 /* Operation Mode Strap Override */
 #define MII_KSZPHY_OMSO				0x16
@@ -674,8 +673,8 @@ static void kszphy_get_strings(struct phy_device *phydev, u8 *data)
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(kszphy_hw_stats); i++) {
-		strlcpy(data + i * ETH_GSTRING_LEN,
-			kszphy_hw_stats[i].string, ETH_GSTRING_LEN);
+		memcpy(data + i * ETH_GSTRING_LEN,
+		       kszphy_hw_stats[i].string, ETH_GSTRING_LEN);
 	}
 }
 
@@ -727,12 +726,6 @@ static int kszphy_resume(struct phy_device *phydev)
 	int ret;
 
 	genphy_resume(phydev);
-
-	/* After switching from power-down to normal mode, an internal global
-	 * reset is automatically generated. Wait a minimum of 1 ms before
-	 * read/write access to the PHY registers.
-	 */
-	usleep_range(1000, 2000);
 
 	ret = kszphy_config_reset(phydev);
 	if (ret)
@@ -876,9 +869,8 @@ static struct phy_driver ksphy_driver[] = {
 	.get_sset_count = kszphy_get_sset_count,
 	.get_strings	= kszphy_get_strings,
 	.get_stats	= kszphy_get_stats,
-	/* No suspend/resume callbacks because of errata DS80000700A,
-	 * receiver error following software power down.
-	 */
+	.suspend	= genphy_suspend,
+	.resume		= genphy_resume,
 }, {
 	.phy_id		= PHY_ID_KSZ8041RNLI,
 	.phy_id_mask	= MICREL_PHY_ID_MASK,

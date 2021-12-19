@@ -478,11 +478,11 @@ static void snoop_urb(struct usb_device *udev,
 
 	if (userurb) {		/* Async */
 		if (when == SUBMIT)
-			dev_info(&udev->dev, "userurb %px, ep%d %s-%s, "
+			dev_info(&udev->dev, "userurb %pK, ep%d %s-%s, "
 					"length %u\n",
 					userurb, ep, t, d, length);
 		else
-			dev_info(&udev->dev, "userurb %px, ep%d %s-%s, "
+			dev_info(&udev->dev, "userurb %pK, ep%d %s-%s, "
 					"actual_length %u status %d\n",
 					userurb, ep, t, d, length,
 					timeout_or_status);
@@ -755,15 +755,8 @@ static int claimintf(struct usb_dev_state *ps, unsigned int ifnum)
 	intf = usb_ifnum_to_if(dev, ifnum);
 	if (!intf)
 		err = -ENOENT;
-	else {
-		unsigned int old_suppress;
-
-		/* suppress uevents while claiming interface */
-		old_suppress = dev_get_uevent_suppress(&intf->dev);
-		dev_set_uevent_suppress(&intf->dev, 1);
+	else
 		err = usb_driver_claim_interface(&usbfs_driver, intf, ps);
-		dev_set_uevent_suppress(&intf->dev, old_suppress);
-	}
 	if (err == 0)
 		set_bit(ifnum, &ps->ifclaimed);
 	return err;
@@ -783,13 +776,7 @@ static int releaseintf(struct usb_dev_state *ps, unsigned int ifnum)
 	if (!intf)
 		err = -ENOENT;
 	else if (test_and_clear_bit(ifnum, &ps->ifclaimed)) {
-		unsigned int old_suppress;
-
-		/* suppress uevents while releasing interface */
-		old_suppress = dev_get_uevent_suppress(&intf->dev);
-		dev_set_uevent_suppress(&intf->dev, 1);
 		usb_driver_release_interface(&usbfs_driver, intf);
-		dev_set_uevent_suppress(&intf->dev, old_suppress);
 		err = 0;
 	}
 	return err;
@@ -992,6 +979,10 @@ static struct usb_device *usbdev_lookup_by_devt(dev_t devt)
 	return to_usb_device(dev);
 }
 
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+static unsigned int prev_cmd = 0;
+static int prev_ret = 0;
+#endif
 /*
  * file operations
  */
@@ -1046,6 +1037,10 @@ static int usbdev_open(struct inode *inode, struct file *file)
 	usb_unlock_device(dev);
 	snoop(&dev->dev, "opened by process %d: %s\n", task_pid_nr(current),
 			current->comm);
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+	prev_cmd = 0;
+	prev_ret = 0;
+#endif
 	return ret;
 
  out_unlock_device:
@@ -1278,6 +1273,7 @@ static int proc_resetep(struct usb_dev_state *ps, void __user *arg)
 	ret = checkintf(ps, ret);
 	if (ret)
 		return ret;
+	dev_info(&ps->dev->dev,"%s epnum %d\n", __func__, ep);
 	check_reset_of_active_ep(ps->dev, ep, "RESETEP");
 	usb_reset_endpoint(ps->dev, ep);
 	return 0;
@@ -1348,6 +1344,7 @@ static int proc_resetdevice(struct usb_dev_state *ps)
 	 * privilege to do such things and any of the interfaces are
 	 * currently claimed.
 	 */
+	dev_info(&ps->dev->dev,"%s\n", __func__);
 	if (ps->privileges_dropped && actconfig) {
 		for (i = 0; i < actconfig->desc.bNumInterfaces; ++i) {
 			interface = actconfig->interface[i];
@@ -1824,6 +1821,8 @@ static int proc_do_submiturb(struct usb_dev_state *ps, struct usbdevfs_urb *uurb
 	return 0;
 
  error:
+	if (as && as->usbm)
+		dec_usb_memory_use_count(as->usbm, &as->usbm->urb_use_count);
 	kfree(isopkt);
 	kfree(dr);
 	if (as)
@@ -1946,7 +1945,7 @@ static int proc_reapurb(struct usb_dev_state *ps, void __user *arg)
 	if (as) {
 		int retval;
 
-		snoop(&ps->dev->dev, "reap %px\n", as->userurb);
+		snoop(&ps->dev->dev, "reap %pK\n", as->userurb);
 		retval = processcompl(as, (void __user * __user *)arg);
 		free_async(as);
 		return retval;
@@ -1963,7 +1962,7 @@ static int proc_reapurbnonblock(struct usb_dev_state *ps, void __user *arg)
 
 	as = async_getcompleted(ps);
 	if (as) {
-		snoop(&ps->dev->dev, "reap %px\n", as->userurb);
+		snoop(&ps->dev->dev, "reap %pK\n", as->userurb);
 		retval = processcompl(as, (void __user * __user *)arg);
 		free_async(as);
 	} else {
@@ -2089,7 +2088,7 @@ static int proc_reapurb_compat(struct usb_dev_state *ps, void __user *arg)
 	if (as) {
 		int retval;
 
-		snoop(&ps->dev->dev, "reap %px\n", as->userurb);
+		snoop(&ps->dev->dev, "reap %pK\n", as->userurb);
 		retval = processcompl_compat(as, (void __user * __user *)arg);
 		free_async(as);
 		return retval;
@@ -2106,7 +2105,7 @@ static int proc_reapurbnonblock_compat(struct usb_dev_state *ps, void __user *ar
 
 	as = async_getcompleted(ps);
 	if (as) {
-		snoop(&ps->dev->dev, "reap %px\n", as->userurb);
+		snoop(&ps->dev->dev, "reap %pK\n", as->userurb);
 		retval = processcompl_compat(as, (void __user * __user *)arg);
 		free_async(as);
 	} else {
@@ -2135,6 +2134,7 @@ static int proc_claiminterface(struct usb_dev_state *ps, void __user *arg)
 
 	if (get_user(ifnum, (unsigned int __user *)arg))
 		return -EFAULT;
+	dev_info(&ps->dev->dev,"%s: ifnum %d\n", __func__, ifnum);
 	return claimintf(ps, ifnum);
 }
 
@@ -2145,6 +2145,7 @@ static int proc_releaseinterface(struct usb_dev_state *ps, void __user *arg)
 
 	if (get_user(ifnum, (unsigned int __user *)arg))
 		return -EFAULT;
+	dev_info(&ps->dev->dev,"%s: ifnum %d\n", __func__, ifnum);
 	ret = releaseintf(ps, ifnum);
 	if (ret < 0)
 		return ret;
@@ -2189,7 +2190,7 @@ static int proc_ioctl(struct usb_dev_state *ps, struct usbdevfs_ioctl *ctl)
 	else if (!(intf = usb_ifnum_to_if(ps->dev, ctl->ifno)))
 		retval = -EINVAL;
 	else switch (ctl->ioctl_code) {
-
+	dev_info(&ps->dev->dev,"%s ioctl_code %d\n", __func__, ctl->ioctl_code);
 	/* disconnect kernel driver from interface */
 	case USBDEVFS_DISCONNECT:
 		if (intf->dev.driver) {
@@ -2325,7 +2326,8 @@ static int proc_disconnect_claim(struct usb_dev_state *ps, void __user *arg)
 					sizeof(dc.driver)) == 0)
 			return -EBUSY;
 
-		dev_dbg(&intf->dev, "disconnect by usbfs\n");
+		dev_info(&intf->dev, "%s,intfnum %d disconnect by usbfs\n",
+				__func__, dc.interface);
 		usb_driver_release_interface(driver, intf);
 	}
 
@@ -2531,7 +2533,7 @@ static long usbdev_do_ioctl(struct file *file, unsigned int cmd,
 #endif
 
 	case USBDEVFS_DISCARDURB:
-		snoop(&dev->dev, "%s: DISCARDURB %px\n", __func__, p);
+		snoop(&dev->dev, "%s: DISCARDURB %pK\n", __func__, p);
 		ret = proc_unlinkurb(ps, p);
 		break;
 
@@ -2591,13 +2593,102 @@ static long usbdev_do_ioctl(struct file *file, unsigned int cmd,
 	return ret;
 }
 
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+static int usbdev_log(unsigned int cmd, int ret)
+{
+	char *cmd_string;
+
+	switch (cmd) {
+	case USBDEVFS_CONTROL:
+		cmd_string = "CONTROL";
+		break;
+	case USBDEVFS_BULK:
+		cmd_string = "BULK";
+		break;
+	case USBDEVFS_RESETEP:
+		cmd_string = "RESETEP";
+		break;
+	case USBDEVFS_RESET:
+		cmd_string = "RESET";
+		break;
+	case USBDEVFS_CLEAR_HALT:
+		cmd_string = "CLEAR_HALT";
+		break;
+	case USBDEVFS_GETDRIVER:
+		cmd_string = "GETDRIVER";
+		break;
+	case USBDEVFS_CONNECTINFO:
+		cmd_string = "CONNECTINFO";
+		break;
+	case USBDEVFS_SETINTERFACE:
+		cmd_string = "SETINTERFACE";
+		break;
+	case USBDEVFS_SETCONFIGURATION:
+		cmd_string = "SETCONFIGURATION";
+		break;
+	case USBDEVFS_SUBMITURB:
+		cmd_string = "SUBMITURB";
+		break;
+	case USBDEVFS_DISCARDURB:
+		cmd_string = "DISCARDURB";
+		break;
+	case USBDEVFS_REAPURB:
+		cmd_string = "REAPURB";
+		break;
+	case USBDEVFS_REAPURBNDELAY:
+		cmd_string = "REAPURBNDELAY";
+		break;
+	case USBDEVFS_DISCSIGNAL:
+		cmd_string = "DISCSIGNAL";
+		break;
+	case USBDEVFS_CLAIMINTERFACE:
+		cmd_string = "CLAIMINTERFACE";
+		break;
+	case USBDEVFS_RELEASEINTERFACE:
+		cmd_string = "RELEASEINTERFACE";
+		break;
+	case USBDEVFS_IOCTL:
+		cmd_string = "IOCTL";
+		break;
+	case USBDEVFS_CLAIM_PORT:
+		cmd_string = "CLAIM_PORT";
+		break;
+	case USBDEVFS_RELEASE_PORT:
+		cmd_string = "RELEASE_PORT";
+		break;
+	case USBDEVFS_GET_CAPABILITIES:
+		cmd_string = "GET_CAPABILITIES";
+		break;
+	case USBDEVFS_DISCONNECT_CLAIM:
+		cmd_string = "DISCONNECT_CLAIM";
+		break;
+	default:
+		cmd_string = "DEFAULT";
+		break;
+	}
+	if ((prev_cmd != cmd) || (prev_ret != ret)) {
+		printk(KERN_ERR "%s: %s error ret=%d\n", __func__, cmd_string, ret);
+		prev_cmd = cmd;
+		prev_ret = ret;
+	}
+	return 0;
+}
+#endif
+
 static long usbdev_ioctl(struct file *file, unsigned int cmd,
 			unsigned long arg)
 {
 	int ret;
 
 	ret = usbdev_do_ioctl(file, cmd, (void __user *)arg);
-
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+	if (ret < 0)
+		usbdev_log(cmd, ret);
+	else {
+		prev_cmd = 0;
+		prev_ret = 0;
+	}
+#endif
 	return ret;
 }
 

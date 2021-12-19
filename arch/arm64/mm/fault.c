@@ -32,6 +32,7 @@
 #include <linux/perf_event.h>
 #include <linux/preempt.h>
 #include <linux/hugetlb.h>
+#include <linux/debug-snapshot.h>
 
 #include <asm/bug.h>
 #include <asm/cmpxchg.h>
@@ -39,13 +40,21 @@
 #include <asm/exception.h>
 #include <asm/debug-monitors.h>
 #include <asm/esr.h>
-#include <asm/kasan.h>
 #include <asm/sysreg.h>
 #include <asm/system_misc.h>
 #include <asm/pgtable.h>
 #include <asm/tlbflush.h>
-
 #include <acpi/ghes.h>
+
+#include <soc/samsung/exynos-adv-tracer.h>
+
+#ifdef CONFIG_SEC_DEBUG
+#include <linux/sec_debug.h>
+#endif
+
+unsigned long __tlb_conflict_cnt;
+
+static int safe_fault_in_progress = 0;
 
 struct fault_info {
 	int	(*fn)(unsigned long addr, unsigned int esr,
@@ -56,6 +65,10 @@ struct fault_info {
 };
 
 static const struct fault_info fault_info[];
+
+#ifdef CONFIG_SEC_DEBUG_AVOID_UNNECESSARY_TRAP
+unsigned long long incorrect_addr = 0;
+#endif
 
 static inline const struct fault_info *esr_to_fault_info(unsigned int esr)
 {
@@ -127,16 +140,15 @@ static void mem_abort_decode(unsigned int esr)
 		data_abort_decode(esr);
 }
 
-static inline bool is_ttbr0_addr(unsigned long addr)
+static inline phys_addr_t show_virt_to_phys(unsigned long addr)
 {
-	/* entry assembly clears tags for TTBR0 addrs */
-	return addr < TASK_SIZE;
-}
-
-static inline bool is_ttbr1_addr(unsigned long addr)
-{
-	/* TTBR1 addresses may have a tag if KASAN_SW_TAGS is in use */
-	return arch_kasan_reset_tag(addr) >= VA_START;
+	if (!is_vmalloc_addr((void *)addr) ||
+		(addr >= (unsigned long) KERNEL_START &&
+		 addr <= (unsigned long) KERNEL_END))
+		return __pa(addr);
+	else
+		return page_to_phys(vmalloc_to_page((void *)addr)) +
+		       offset_in_page(addr);
 }
 
 /*
@@ -147,7 +159,7 @@ void show_pte(unsigned long addr)
 	struct mm_struct *mm;
 	pgd_t *pgd;
 
-	if (is_ttbr0_addr(addr)) {
+	if (addr < TASK_SIZE) {
 		/* TTBR0 */
 		mm = current->active_mm;
 		if (mm == &init_mm) {
@@ -155,7 +167,7 @@ void show_pte(unsigned long addr)
 				 addr);
 			return;
 		}
-	} else if (is_ttbr1_addr(addr)) {
+	} else if (addr >= VA_START) {
 		/* TTBR1 */
 		mm = &init_mm;
 	} else {
@@ -238,6 +250,17 @@ int ptep_set_access_flags(struct vm_area_struct *vma,
 	return 1;
 }
 
+int __do_kernel_fault_safe(struct mm_struct *mm, unsigned long addr,
+		unsigned int esr, struct pt_regs *regs)
+{
+	safe_fault_in_progress = 0xFAFADEAD;
+
+	dbg_snapshot_panic_handler_safe();
+	dbg_snapshot_spin_func();
+
+	return 0;
+}
+
 static bool is_el1_instruction_abort(unsigned int esr)
 {
 	return ESR_ELx_EC(esr) == ESR_ELx_EC_IABT_CUR;
@@ -255,7 +278,7 @@ static inline bool is_permission_fault(unsigned int esr, struct pt_regs *regs,
 	if (fsc_type == ESR_ELx_FSC_PERM)
 		return true;
 
-	if (is_ttbr0_addr(addr) && system_uses_ttbr0_pan())
+	if (addr < TASK_SIZE && system_uses_ttbr0_pan())
 		return fsc_type == ESR_ELx_FSC_FAULT &&
 			(regs->pstate & PSR_PAN_BIT);
 
@@ -277,6 +300,12 @@ static void __do_kernel_fault(unsigned long addr, unsigned int esr,
 	if (!is_el1_instruction_abort(esr) && fixup_exception(regs))
 		return;
 
+	if (safe_fault_in_progress) {
+		dbg_snapshot_printkl(safe_fault_in_progress, safe_fault_in_progress);
+		return;
+	}
+
+	adv_tracer_arraydump();
 	/*
 	 * No handler, we'll have to terminate things with extreme prejudice.
 	 */
@@ -293,8 +322,14 @@ static void __do_kernel_fault(unsigned long addr, unsigned int esr,
 		msg = "paging request";
 	}
 
-	pr_alert("Unable to handle kernel %s at virtual address %08lx\n", msg,
-		 addr);
+	if (show_do_kernel_fault_ratelimited())
+		pr_auto(ASL1, "Unable to handle kernel %s at virtual address %08lx\n",
+			 (addr < PAGE_SIZE) ? "NULL pointer dereference" :
+			 "paging request", addr);
+
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+	sec_debug_set_extra_info_fault(KERNEL_FAULT, addr, regs);
+#endif
 
 	mem_abort_decode(esr);
 
@@ -413,7 +448,7 @@ static int __kprobes do_page_fault(unsigned long addr, unsigned int esr,
 	struct task_struct *tsk;
 	struct mm_struct *mm;
 	int fault, sig, code, major = 0;
-	unsigned long vm_flags = VM_READ | VM_WRITE | VM_EXEC;
+	unsigned long vm_flags = VM_READ | VM_WRITE;
 	unsigned int mm_flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
 
 	if (notify_page_fault(regs, esr))
@@ -439,7 +474,36 @@ static int __kprobes do_page_fault(unsigned long addr, unsigned int esr,
 		mm_flags |= FAULT_FLAG_WRITE;
 	}
 
-	if (is_ttbr0_addr(addr) && is_permission_fault(esr, regs, addr)) {
+	if (addr < TASK_SIZE && is_permission_fault(esr, regs, addr)) {
+#ifdef CONFIG_SEC_DEBUG_AUTO_COMMENT
+		/* regs->orig_addr_limit may be 0 if we entered from EL0 */
+		if (regs->orig_addr_limit == KERNEL_DS) {
+			pr_auto(ASL1, "Accessing user space memory(%lx) with fs=KERNEL_DS\n", addr);
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+			sec_debug_set_extra_info_fault(PAGE_FAULT, addr, regs);
+			sec_debug_set_extra_info_esr(esr);
+#endif
+			die("Accessing user space memory with fs=KERNEL_DS", regs, esr);
+		}
+
+		if (is_el1_instruction_abort(esr)) {
+			pr_auto(ASL1, "Attempting to execute userspace memory(%lx)\n", addr);
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+			sec_debug_set_extra_info_fault(PAGE_FAULT, addr, regs);
+			sec_debug_set_extra_info_esr(esr);
+#endif
+			die("Attempting to execute userspace memory", regs, esr);
+		}
+
+		if (!search_exception_tables(regs->pc)) {
+			pr_auto(ASL1, "Accessing user space memory(%lx) outside uaccess.h routines\n", addr);
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+			sec_debug_set_extra_info_fault(PAGE_FAULT, addr, regs);
+			sec_debug_set_extra_info_esr(esr);
+#endif
+			die("Accessing user space memory outside uaccess.h routines", regs, esr);
+		}
+#else
 		/* regs->orig_addr_limit may be 0 if we entered from EL0 */
 		if (regs->orig_addr_limit == KERNEL_DS)
 			die("Accessing user space memory with fs=KERNEL_DS", regs, esr);
@@ -449,6 +513,7 @@ static int __kprobes do_page_fault(unsigned long addr, unsigned int esr,
 
 		if (!search_exception_tables(regs->pc))
 			die("Accessing user space memory outside uaccess.h routines", regs, esr);
+#endif
 	}
 
 	perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS, 1, regs, addr);
@@ -572,6 +637,8 @@ no_context:
 	return 0;
 }
 
+#define thread_virt_addr_valid(xaddr)   pfn_valid(__pa(xaddr) >> PAGE_SHIFT)
+
 /*
  * First Level Translation Fault Handler
  *
@@ -593,7 +660,11 @@ static int __kprobes do_translation_fault(unsigned long addr,
 					  unsigned int esr,
 					  struct pt_regs *regs)
 {
-	if (is_ttbr0_addr(addr))
+	/* We may have invalid '*current'*/
+	if (!thread_virt_addr_valid(current_thread_info()))
+		__do_kernel_fault_safe(NULL, addr, esr, regs);
+
+	if (addr < TASK_SIZE)
 		return do_page_fault(addr, esr, regs);
 
 	do_bad_area(addr, esr, regs);
@@ -625,10 +696,14 @@ static int do_sea(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 	const struct fault_info *inf;
 	int ret = 0;
 
-	inf = esr_to_fault_info(esr);
-	pr_err("Synchronous External Abort: %s (0x%08x) at 0x%016lx\n",
-		inf->name, esr, addr);
+#ifdef CONFIG_SEC_DEBUG_AVOID_UNNECESSARY_TRAP
+	incorrect_addr = (unsigned long long)addr;
+#endif
 
+	inf = esr_to_fault_info(esr);
+
+	pr_auto(ASL1, "%s (0x%08x) at 0x%016lx[0x%09lx]\n",
+		      inf->name, esr, addr, show_virt_to_phys(addr));
 	/*
 	 * Synchronous aborts may interrupt code which had interrupts masked.
 	 * Before calling out into the wider kernel tell the interested
@@ -752,8 +827,27 @@ asmlinkage void __exception do_mem_abort(unsigned long addr, unsigned int esr,
 	if (!inf->fn(addr, esr, regs))
 		return;
 
-	pr_alert("Unhandled fault: %s (0x%08x) at 0x%016lx\n",
-		 inf->name, esr, addr);
+	if (!user_mode(regs))
+		adv_tracer_arraydump();
+
+	/* Synchronous external abort only */
+	if (!user_mode(regs) || (esr & 63) == 0x10) {
+		if (esr & BIT(10)) {
+			/* FnV = 1, FAR is not valid for custom core */
+			pr_auto(ASL1, "Unhandled fault: %s (0x%08x) at 0x%016lx (PA)\n",
+					inf->name, esr, addr & 0xFFFFFFFFFUL);
+		} else {
+			/* FnV = 0, FAR valid for ARM core */
+			pr_auto(ASL1, "Unhandled fault: %s (0x%08x) at 0x%016lx (VA)\n",
+					inf->name, esr, addr);
+		}
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+		if (!user_mode(regs)) {
+			sec_debug_set_extra_info_fault(MEM_ABORT_FAULT, addr, regs);
+			sec_debug_set_extra_info_esr(esr);
+		}
+#endif
+	}
 
 	mem_abort_decode(esr);
 
@@ -779,7 +873,7 @@ asmlinkage void __exception do_el0_ia_bp_hardening(unsigned long addr,
 	 * re-enabled IRQs. If the address is a kernel address, apply
 	 * BP hardening prior to enabling IRQs and pre-emption.
 	 */
-	if (!is_ttbr0_addr(addr))
+	if (addr > TASK_SIZE)
 		arm64_apply_bp_hardening();
 
 	local_irq_enable();
@@ -798,16 +892,24 @@ asmlinkage void __exception do_sp_pc_abort(unsigned long addr,
 	struct task_struct *tsk = current;
 
 	if (user_mode(regs)) {
-		if (!is_ttbr0_addr(instruction_pointer(regs)))
+		if (instruction_pointer(regs) > TASK_SIZE)
 			arm64_apply_bp_hardening();
+
 		local_irq_enable();
+	} else {
+		adv_tracer_arraydump();
 	}
 
-	if (show_unhandled_signals && unhandled_signal(tsk, SIGBUS))
-		pr_info_ratelimited("%s[%d]: %s exception: pc=%p sp=%p\n",
-				    tsk->comm, task_pid_nr(tsk),
+	if (!user_mode(regs) || (unhandled_signal(tsk, SIGBUS) && show_unhandled_signals_ratelimited()))
+		pr_auto(ASL1, "%s exception: pc=%p sp=%p, %s[%d]\n",
 				    esr_get_class_string(esr), (void *)regs->pc,
-				    (void *)regs->sp);
+			(void *)regs->sp, tsk->comm, task_pid_nr(tsk));
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+	if (!user_mode(regs)) {
+		sec_debug_set_extra_info_fault(SP_PC_ABORT_FAULT, addr, regs);
+		sec_debug_set_extra_info_esr(esr);
+	}
+#endif
 
 	info.si_signo = SIGBUS;
 	info.si_errno = 0;
@@ -863,7 +965,7 @@ asmlinkage int __exception do_debug_exception(unsigned long addr_if_watchpoint,
 	if (interrupts_enabled(regs))
 		trace_hardirqs_off();
 
-	if (user_mode(regs) && !is_ttbr0_addr(pc))
+	if (user_mode(regs) && pc > TASK_SIZE)
 		arm64_apply_bp_hardening();
 
 	if (!inf->fn(addr_if_watchpoint, esr, regs)) {
@@ -888,7 +990,7 @@ asmlinkage int __exception do_debug_exception(unsigned long addr_if_watchpoint,
 NOKPROBE_SYMBOL(do_debug_exception);
 
 #ifdef CONFIG_ARM64_PAN
-void cpu_enable_pan(const struct arm64_cpu_capabilities *__unused)
+int cpu_enable_pan(void *__unused)
 {
 	/*
 	 * We modify PSTATE. This won't work from irq context as the PSTATE
@@ -898,5 +1000,6 @@ void cpu_enable_pan(const struct arm64_cpu_capabilities *__unused)
 
 	config_sctlr_el1(SCTLR_EL1_SPAN, 0);
 	asm(SET_PSTATE_PAN(1));
+	return 0;
 }
 #endif /* CONFIG_ARM64_PAN */

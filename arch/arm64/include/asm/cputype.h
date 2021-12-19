@@ -70,11 +70,18 @@
 	_model == (model) && rv >= (rv_min) && rv <= (rv_max);		\
  })
 
+#define MIDR_CPU_PART(imp, partnum) \
+	(((imp)                 << MIDR_IMPLEMENTOR_SHIFT) | \
+	 (0xf                    << MIDR_ARCHITECTURE_SHIFT) | \
+	 ((partnum)              << MIDR_PARTNUM_SHIFT))
+
+
 #define ARM_CPU_IMP_ARM			0x41
 #define ARM_CPU_IMP_APM			0x50
 #define ARM_CPU_IMP_CAVIUM		0x43
 #define ARM_CPU_IMP_BRCM		0x42
 #define ARM_CPU_IMP_QCOM		0x51
+#define ARM_CPU_IMP_SEC                 0x53
 #define ARM_CPU_IMP_NVIDIA		0x4E
 
 #define ARM_CPU_PART_AEM_V8		0xD0F
@@ -84,9 +91,11 @@
 #define ARM_CPU_PART_CORTEX_A72		0xD08
 #define ARM_CPU_PART_CORTEX_A53		0xD03
 #define ARM_CPU_PART_CORTEX_A73		0xD09
+#define ARM_CPU_PART_ANANKE		0xD05
+#define ARM_CPU_PART_MONGOOSE           0x001
+#define ARM_CPU_PART_MEERKAT		0x002
 #define ARM_CPU_PART_CORTEX_A75		0xD0A
-#define ARM_CPU_PART_CORTEX_A35		0xD04
-#define ARM_CPU_PART_CORTEX_A55		0xD05
+#define ARM_CPU_PART_CHEETAH		0x003
 
 #define APM_CPU_PART_POTENZA		0x000
 
@@ -110,14 +119,16 @@
 #define MIDR_CORTEX_A72 MIDR_CPU_MODEL(ARM_CPU_IMP_ARM, ARM_CPU_PART_CORTEX_A72)
 #define MIDR_CORTEX_A73 MIDR_CPU_MODEL(ARM_CPU_IMP_ARM, ARM_CPU_PART_CORTEX_A73)
 #define MIDR_CORTEX_A75 MIDR_CPU_MODEL(ARM_CPU_IMP_ARM, ARM_CPU_PART_CORTEX_A75)
-#define MIDR_CORTEX_A35 MIDR_CPU_MODEL(ARM_CPU_IMP_ARM, ARM_CPU_PART_CORTEX_A35)
-#define MIDR_CORTEX_A55 MIDR_CPU_MODEL(ARM_CPU_IMP_ARM, ARM_CPU_PART_CORTEX_A55)
 #define MIDR_THUNDERX	MIDR_CPU_MODEL(ARM_CPU_IMP_CAVIUM, CAVIUM_CPU_PART_THUNDERX)
 #define MIDR_THUNDERX_81XX MIDR_CPU_MODEL(ARM_CPU_IMP_CAVIUM, CAVIUM_CPU_PART_THUNDERX_81XX)
 #define MIDR_THUNDERX_83XX MIDR_CPU_MODEL(ARM_CPU_IMP_CAVIUM, CAVIUM_CPU_PART_THUNDERX_83XX)
 #define MIDR_CAVIUM_THUNDERX2 MIDR_CPU_MODEL(ARM_CPU_IMP_CAVIUM, CAVIUM_CPU_PART_THUNDERX2)
 #define MIDR_BRCM_VULCAN MIDR_CPU_MODEL(ARM_CPU_IMP_BRCM, BRCM_CPU_PART_VULCAN)
 #define MIDR_QCOM_FALKOR_V1 MIDR_CPU_MODEL(ARM_CPU_IMP_QCOM, QCOM_CPU_PART_FALKOR_V1)
+#define MIDR_MEERKAT	MIDR_CPU_PART(ARM_CPU_IMP_SEC, ARM_CPU_PART_MEERKAT)
+#define MIDR_CHEETAH	MIDR_CPU_PART(ARM_CPU_IMP_SEC, ARM_CPU_PART_CHEETAH)
+#define MIDR_MODEL_MASK     (MIDR_IMPLEMENTOR_MASK | MIDR_PARTNUM_MASK | \
+				MIDR_ARCHITECTURE_MASK)
 #define MIDR_QCOM_FALKOR MIDR_CPU_MODEL(ARM_CPU_IMP_QCOM, QCOM_CPU_PART_FALKOR)
 #define MIDR_QCOM_KRYO MIDR_CPU_MODEL(ARM_CPU_IMP_QCOM, QCOM_CPU_PART_KRYO)
 #define MIDR_NVIDIA_DENVER MIDR_CPU_MODEL(ARM_CPU_IMP_NVIDIA, NVIDIA_CPU_PART_DENVER)
@@ -128,45 +139,6 @@
 #include <asm/sysreg.h>
 
 #define read_cpuid(reg)			read_sysreg_s(SYS_ ## reg)
-
-/*
- * Represent a range of MIDR values for a given CPU model and a
- * range of variant/revision values.
- *
- * @model	- CPU model as defined by MIDR_CPU_MODEL
- * @rv_min	- Minimum value for the revision/variant as defined by
- *		  MIDR_CPU_VAR_REV
- * @rv_max	- Maximum value for the variant/revision for the range.
- */
-struct midr_range {
-	u32 model;
-	u32 rv_min;
-	u32 rv_max;
-};
-
-#define MIDR_RANGE(m, v_min, r_min, v_max, r_max)		\
-	{							\
-		.model = m,					\
-		.rv_min = MIDR_CPU_VAR_REV(v_min, r_min),	\
-		.rv_max = MIDR_CPU_VAR_REV(v_max, r_max),	\
-	}
-
-#define MIDR_ALL_VERSIONS(m) MIDR_RANGE(m, 0, 0, 0xf, 0xf)
-
-static inline bool is_midr_in_range(u32 midr, struct midr_range const *range)
-{
-	return MIDR_IS_CPU_MODEL_RANGE(midr, range->model,
-				 range->rv_min, range->rv_max);
-}
-
-static inline bool
-is_midr_in_range_list(u32 midr, struct midr_range const *ranges)
-{
-	while (ranges->model)
-		if (is_midr_in_range(midr, ranges++))
-			return true;
-	return false;
-}
 
 /*
  * The CPU ID never changes at run time, so we might as well tell the

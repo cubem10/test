@@ -49,7 +49,7 @@ int ovl_setattr(struct dentry *dentry, struct iattr *attr)
 		inode_lock(upperdentry->d_inode);
 		old_cred = ovl_override_creds(dentry->d_sb);
 		err = notify_change(upperdentry, attr, NULL);
-		ovl_revert_creds(old_cred);
+		revert_creds(old_cred);
 		if (!err)
 			ovl_copyattr(upperdentry->d_inode, dentry->d_inode);
 		inode_unlock(upperdentry->d_inode);
@@ -142,7 +142,7 @@ int ovl_getattr(const struct path *path, struct kstat *stat,
 		stat->nlink = dentry->d_inode->i_nlink;
 
 out:
-	ovl_revert_creds(old_cred);
+	revert_creds(old_cred);
 
 	return err;
 }
@@ -176,7 +176,7 @@ int ovl_permission(struct inode *inode, int mask)
 		mask |= MAY_READ;
 	}
 	err = inode_permission(realinode, mask);
-	ovl_revert_creds(old_cred);
+	revert_creds(old_cred);
 
 	return err;
 }
@@ -193,7 +193,7 @@ static const char *ovl_get_link(struct dentry *dentry,
 
 	old_cred = ovl_override_creds(dentry->d_sb);
 	p = vfs_get_link(ovl_dentry_real(dentry), done);
-	ovl_revert_creds(old_cred);
+	revert_creds(old_cred);
 	return p;
 }
 
@@ -216,9 +216,7 @@ int ovl_xattr_set(struct dentry *dentry, struct inode *inode, const char *name,
 		goto out;
 
 	if (!value && !upperdentry) {
-		old_cred = ovl_override_creds(dentry->d_sb);
 		err = vfs_getxattr(realdentry, name, NULL, 0);
-		revert_creds(old_cred);
 		if (err < 0)
 			goto out_drop_write;
 	}
@@ -238,27 +236,12 @@ int ovl_xattr_set(struct dentry *dentry, struct inode *inode, const char *name,
 		WARN_ON(flags != XATTR_REPLACE);
 		err = vfs_removexattr(realdentry, name);
 	}
-	ovl_revert_creds(old_cred);
+	revert_creds(old_cred);
 
 out_drop_write:
 	ovl_drop_write(dentry);
 out:
 	return err;
-}
-
-int __ovl_xattr_get(struct dentry *dentry, struct inode *inode,
-		    const char *name, void *value, size_t size)
-{
-	ssize_t res;
-	const struct cred *old_cred;
-	struct dentry *realdentry =
-		ovl_i_dentry_upper(inode) ?: ovl_dentry_lower(dentry);
-
-	old_cred = ovl_override_creds(dentry->d_sb);
-	res = __vfs_getxattr(realdentry, d_inode(realdentry), name, value,
-			     size);
-	ovl_revert_creds(old_cred);
-	return res;
 }
 
 int ovl_xattr_get(struct dentry *dentry, struct inode *inode, const char *name,
@@ -271,7 +254,7 @@ int ovl_xattr_get(struct dentry *dentry, struct inode *inode, const char *name,
 
 	old_cred = ovl_override_creds(dentry->d_sb);
 	res = vfs_getxattr(realdentry, name, value, size);
-	ovl_revert_creds(old_cred);
+	revert_creds(old_cred);
 	return res;
 }
 
@@ -282,8 +265,7 @@ static bool ovl_can_list(const char *s)
 		return true;
 
 	/* Never list trusted.overlay, list other trusted for superuser only */
-	return !ovl_is_private_xattr(s) &&
-	       ns_capable_noaudit(&init_user_ns, CAP_SYS_ADMIN);
+	return !ovl_is_private_xattr(s) && capable(CAP_SYS_ADMIN);
 }
 
 ssize_t ovl_listxattr(struct dentry *dentry, char *list, size_t size)
@@ -296,7 +278,7 @@ ssize_t ovl_listxattr(struct dentry *dentry, char *list, size_t size)
 
 	old_cred = ovl_override_creds(dentry->d_sb);
 	res = vfs_listxattr(realdentry, list, size);
-	ovl_revert_creds(old_cred);
+	revert_creds(old_cred);
 	if (res <= 0 || size == 0)
 		return res;
 
@@ -331,7 +313,7 @@ struct posix_acl *ovl_get_acl(struct inode *inode, int type)
 
 	old_cred = ovl_override_creds(inode->i_sb);
 	acl = get_acl(realinode, type);
-	ovl_revert_creds(old_cred);
+	revert_creds(old_cred);
 
 	return acl;
 }
@@ -541,13 +523,12 @@ unsigned int ovl_get_nlink(struct dentry *lowerdentry,
 	int nlink_diff;
 	int nlink;
 	char buf[13];
-	ssize_t err;
+	int err;
 
 	if (!lowerdentry || !upperdentry || d_inode(lowerdentry)->i_nlink == 1)
 		return fallback;
 
-	err = ovl_vfs_getxattr(upperdentry, OVL_XATTR_NLINK,
-			       &buf, sizeof(buf) - 1);
+	err = vfs_getxattr(upperdentry, OVL_XATTR_NLINK, &buf, sizeof(buf) - 1);
 	if (err < 0)
 		goto fail;
 
@@ -569,7 +550,7 @@ unsigned int ovl_get_nlink(struct dentry *lowerdentry,
 	return nlink;
 
 fail:
-	pr_warn_ratelimited("overlayfs: failed to get index nlink (%pd2, err=%zi)\n",
+	pr_warn_ratelimited("overlayfs: failed to get index nlink (%pd2, err=%i)\n",
 			    upperdentry, err);
 	return fallback;
 }

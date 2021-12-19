@@ -30,6 +30,9 @@
 
 struct inet_bind_bucket;
 struct tcp_congestion_ops;
+#ifdef CONFIG_MPTCP
+	struct tcp_options_received;
+#endif
 
 /*
  * Pointers to address related TCP functions
@@ -320,10 +323,6 @@ int inet_csk_compat_getsockopt(struct sock *sk, int level, int optname,
 			       char __user *optval, int __user *optlen);
 int inet_csk_compat_setsockopt(struct sock *sk, int level, int optname,
 			       char __user *optval, unsigned int optlen);
-
-/* update the fast reuse flag when adding a socket */
-void inet_csk_update_fastreuse(struct inet_bind_bucket *tb,
-			       struct sock *sk);
 
 struct dst_entry *inet_csk_update_pmtu(struct sock *sk, u32 mtu);
 #endif /* _INET_CONNECTION_SOCK_H */

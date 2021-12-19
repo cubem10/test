@@ -2882,8 +2882,7 @@ static int nf_tables_fill_set(struct sk_buff *skb, const struct nft_ctx *ctx,
 			goto nla_put_failure;
 	}
 
-	if (set->udata &&
-	    nla_put(skb, NFTA_SET_USERDATA, set->udlen, set->udata))
+	if (nla_put(skb, NFTA_SET_USERDATA, set->udlen, set->udata))
 		goto nla_put_failure;
 
 	desc = nla_nest_start(skb, NFTA_SET_DESC);
@@ -3130,13 +3129,10 @@ static int nf_tables_newset(struct net *net, struct sock *nlsk,
 			      NFT_SET_INTERVAL | NFT_SET_TIMEOUT |
 			      NFT_SET_MAP | NFT_SET_EVAL |
 			      NFT_SET_OBJECT))
-			return -EOPNOTSUPP;
+			return -EINVAL;
 		/* Only one of these operations is supported */
-		if ((flags & (NFT_SET_MAP | NFT_SET_OBJECT)) ==
-			     (NFT_SET_MAP | NFT_SET_OBJECT))
-			return -EOPNOTSUPP;
-		if ((flags & (NFT_SET_EVAL | NFT_SET_OBJECT)) ==
-			     (NFT_SET_EVAL | NFT_SET_OBJECT))
+		if ((flags & (NFT_SET_MAP | NFT_SET_EVAL | NFT_SET_OBJECT)) ==
+			     (NFT_SET_MAP | NFT_SET_EVAL | NFT_SET_OBJECT))
 			return -EOPNOTSUPP;
 	}
 
@@ -3168,7 +3164,7 @@ static int nf_tables_newset(struct net *net, struct sock *nlsk,
 		objtype = ntohl(nla_get_be32(nla[NFTA_SET_OBJ_TYPE]));
 		if (objtype == NFT_OBJECT_UNSPEC ||
 		    objtype > NFT_OBJECT_MAX)
-			return -EOPNOTSUPP;
+			return -EINVAL;
 	} else if (flags & NFT_SET_OBJECT)
 		return -EINVAL;
 	else
@@ -3918,19 +3914,13 @@ static int nft_add_set_elem(struct nft_ctx *ctx, struct nft_set *set,
 		if (nla[NFTA_SET_ELEM_DATA] == NULL &&
 		    !(flags & NFT_SET_ELEM_INTERVAL_END))
 			return -EINVAL;
+		if (nla[NFTA_SET_ELEM_DATA] != NULL &&
+		    flags & NFT_SET_ELEM_INTERVAL_END)
+			return -EINVAL;
 	} else {
 		if (nla[NFTA_SET_ELEM_DATA] != NULL)
 			return -EINVAL;
 	}
-
-	if ((flags & NFT_SET_ELEM_INTERVAL_END) &&
-	     (nla[NFTA_SET_ELEM_DATA] ||
-	      nla[NFTA_SET_ELEM_OBJREF] ||
-	      nla[NFTA_SET_ELEM_TIMEOUT] ||
-	      nla[NFTA_SET_ELEM_EXPIRATION] ||
-	      nla[NFTA_SET_ELEM_USERDATA] ||
-	      nla[NFTA_SET_ELEM_EXPR]))
-		return -EINVAL;
 
 	timeout = 0;
 	if (nla[NFTA_SET_ELEM_TIMEOUT] != NULL) {

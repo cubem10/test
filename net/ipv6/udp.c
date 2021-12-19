@@ -170,7 +170,7 @@ static int compute_score(struct sock *sk, struct net *net,
 			score++;
 	}
 
-	if (READ_ONCE(sk->sk_incoming_cpu) == raw_smp_processor_id())
+	if (sk->sk_incoming_cpu == raw_smp_processor_id())
 		score++;
 
 	return score;
@@ -414,6 +414,7 @@ try_again:
 			else
 				UDP6_INC_STATS(sock_net(sk), UDP_MIB_INERRORS,
 					       is_udplite);
+			DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_UDP_MIB_INERRORS6);
 		}
 		kfree_skb(skb);
 		return err;
@@ -482,6 +483,7 @@ csum_copy_err:
 			UDP6_INC_STATS(sock_net(sk),
 				       UDP_MIB_INERRORS, is_udplite);
 		}
+		DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_UDP_MIB_INERRORS7);
 	}
 	kfree_skb(skb);
 
@@ -562,6 +564,7 @@ static int __udpv6_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 			UDP6_INC_STATS(sock_net(sk),
 					 UDP_MIB_RCVBUFERRORS, is_udplite);
 		UDP6_INC_STATS(sock_net(sk), UDP_MIB_INERRORS, is_udplite);
+		DROPDUMP_QPCAP_SKB(skb, NET_DROPDUMP_UDP_MIB_INERRORS8);
 		kfree_skb(skb);
 		return -1;
 	}
@@ -629,7 +632,7 @@ static int udpv6_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 	/*
 	 * UDP-Lite specific tests, ignored on UDP sockets (see net/ipv4/udp.c).
 	 */
-	if ((up->pcflag & UDPLITE_RECV_CC)  &&  UDP_SKB_CB(skb)->partial_cov) {
+	if ((is_udplite & UDPLITE_RECV_CC)  &&  UDP_SKB_CB(skb)->partial_cov) {
 
 		if (up->pcrlen == 0) {          /* full coverage was set  */
 			net_dbg_ratelimited("UDPLITE6: partial coverage %d while full coverage %d requested\n",
@@ -659,8 +662,10 @@ static int udpv6_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 
 csum_error:
 	__UDP6_INC_STATS(sock_net(sk), UDP_MIB_CSUMERRORS, is_udplite);
+	DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_UDP_MIB_CSUMERRORS2);
 drop:
 	__UDP6_INC_STATS(sock_net(sk), UDP_MIB_INERRORS, is_udplite);
+	DROPDUMP_QPCAP_SKB(skb, NET_DROPDUMP_UDP_MIB_INERRORS9);
 	atomic_inc(&sk->sk_drops);
 	kfree_skb(skb);
 	return -1;
@@ -888,6 +893,7 @@ int __udp6_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 	__UDP6_INC_STATS(net, UDP_MIB_NOPORTS, proto == IPPROTO_UDPLITE);
 	icmpv6_send(skb, ICMPV6_DEST_UNREACH, ICMPV6_PORT_UNREACH, 0);
 
+	DROPDUMP_QPCAP_SKB(skb, NET_DROPDUMP_OPT_UDP_UNREACH1);
 	kfree_skb(skb);
 	return 0;
 
@@ -903,8 +909,10 @@ report_csum_error:
 	udp6_csum_zero_error(skb);
 csum_error:
 	__UDP6_INC_STATS(net, UDP_MIB_CSUMERRORS, proto == IPPROTO_UDPLITE);
+	DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_UDP_MIB_CSUMERRORS3);
 discard:
 	__UDP6_INC_STATS(net, UDP_MIB_INERRORS, proto == IPPROTO_UDPLITE);
+	DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_UDP_MIB_INERRORS10);
 	kfree_skb(skb);
 	return 0;
 }
@@ -1135,7 +1143,7 @@ int udpv6_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 	struct ipcm6_cookie ipc6;
 	int addr_len = msg->msg_namelen;
 	int ulen = len;
-	int corkreq = READ_ONCE(up->corkflag) || msg->msg_flags&MSG_MORE;
+	int corkreq = up->corkflag || msg->msg_flags&MSG_MORE;
 	int err;
 	int connected = 0;
 	int is_udplite = IS_UDPLITE(sk);
@@ -1434,9 +1442,6 @@ void udpv6_destroy_sock(struct sock *sk)
 {
 	struct udp_sock *up = udp_sk(sk);
 	lock_sock(sk);
-
-	/* protects from races with udp_abort() */
-	sock_set_flag(sk, SOCK_DEAD);
 	udp_v6_flush_pending_frames(sk);
 	release_sock(sk);
 

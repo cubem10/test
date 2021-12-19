@@ -272,7 +272,6 @@ struct header_ops {
 				const struct net_device *dev,
 				const unsigned char *haddr);
 	bool	(*validate)(const char *ll_header, unsigned int len);
-	__be16	(*parse_protocol)(const struct sk_buff *skb);
 };
 
 /* These flag bits are private to the generic network queueing
@@ -1719,11 +1718,6 @@ struct net_device {
 	unsigned char		if_port;
 	unsigned char		dma;
 
-	/* Note : dev->mtu is often read without holding a lock.
-	 * Writers usually hold RTNL.
-	 * It is recommended to use READ_ONCE() to annotate the reads,
-	 * and to use WRITE_ONCE() to annotate the writes.
-	 */
 	unsigned int		mtu;
 	unsigned int		min_mtu;
 	unsigned int		max_mtu;
@@ -1907,6 +1901,9 @@ struct net_device {
 	struct lock_class_key	*qdisc_tx_busylock;
 	struct lock_class_key	*qdisc_running_key;
 	bool			proto_down;
+#ifdef CONFIG_NETPM
+	bool netpm_use;
+#endif
 };
 #define to_net_dev(d) container_of(d, struct net_device, dev)
 
@@ -2450,7 +2447,7 @@ void synchronize_net(void);
 int init_dummy_netdev(struct net_device *dev);
 
 DECLARE_PER_CPU(int, xmit_recursion);
-#define XMIT_RECURSION_LIMIT	8
+#define XMIT_RECURSION_LIMIT	10
 
 static inline int dev_recursion_level(void)
 {
@@ -2732,15 +2729,6 @@ static inline int dev_parse_header(const struct sk_buff *skb,
 	return dev->header_ops->parse(skb, haddr);
 }
 
-static inline __be16 dev_parse_header_protocol(const struct sk_buff *skb)
-{
-	const struct net_device *dev = skb->dev;
-
-	if (!dev->header_ops || !dev->header_ops->parse_protocol)
-		return 0;
-	return dev->header_ops->parse_protocol(skb);
-}
-
 /* ll_header must have at least hard_header_len allocated */
 static inline bool dev_validate_header(const struct net_device *dev,
 				       char *ll_header, int len)
@@ -2817,6 +2805,10 @@ struct softnet_data {
 	unsigned int		dropped;
 	struct sk_buff_head	input_pkt_queue;
 	struct napi_struct	backlog;
+
+#ifdef CONFIG_MODEM_IF_NET_GRO
+	struct napi_struct	*current_napi;
+#endif
 
 };
 
@@ -3298,6 +3290,10 @@ gro_result_t napi_gro_frags(struct napi_struct *napi);
 struct packet_offload *gro_find_receive_by_type(__be16 type);
 struct packet_offload *gro_find_complete_by_type(__be16 type);
 
+#if defined(CONFIG_SEC_SIPC_MODEM_IF) || defined(CONFIG_SEC_SIPC_DUAL_MODEM_IF)
+struct napi_struct *napi_get_current(void);
+#endif
+
 static inline void napi_free_frags(struct napi_struct *napi)
 {
 	kfree_skb(napi->skb);
@@ -3323,7 +3319,6 @@ int dev_set_alias(struct net_device *, const char *, size_t);
 int dev_change_net_namespace(struct net_device *, struct net *, const char *);
 int __dev_set_mtu(struct net_device *, int);
 int dev_set_mtu(struct net_device *, int);
-int dev_validate_mtu(struct net_device *dev, int mtu);
 void dev_set_group(struct net_device *, int);
 int dev_set_mac_address(struct net_device *, struct sockaddr *);
 int dev_change_carrier(struct net_device *, bool new_carrier);
@@ -3360,6 +3355,7 @@ static __always_inline int ____dev_forward_skb(struct net_device *dev,
 	skb->priority = 0;
 	return 0;
 }
+
 
 void dev_queue_xmit_nit(struct sk_buff *skb, struct net_device *dev);
 
@@ -3538,7 +3534,7 @@ static inline u32 netif_msg_init(int debug_value, int default_msg_enable_bits)
 	if (debug_value == 0)	/* no output */
 		return 0;
 	/* set low N bits */
-	return (1U << debug_value) - 1;
+	return (1 << debug_value) - 1;
 }
 
 static inline void __netif_tx_lock(struct netdev_queue *txq, int cpu)
@@ -3684,7 +3680,6 @@ static inline void netif_tx_disable(struct net_device *dev)
 
 	local_bh_disable();
 	cpu = smp_processor_id();
-	spin_lock(&dev->tx_global_lock);
 	for (i = 0; i < dev->num_tx_queues; i++) {
 		struct netdev_queue *txq = netdev_get_tx_queue(dev, i);
 
@@ -3692,7 +3687,6 @@ static inline void netif_tx_disable(struct net_device *dev)
 		netif_tx_stop_queue(txq);
 		__netif_tx_unlock(txq);
 	}
-	spin_unlock(&dev->tx_global_lock);
 	local_bh_enable();
 }
 
@@ -3883,6 +3877,9 @@ void netdev_stats_to_stats64(struct rtnl_link_stats64 *stats64,
 extern int		netdev_max_backlog;
 extern int		netdev_tstamp_prequeue;
 extern int		weight_p;
+#ifdef CONFIG_NET_SUPPORT_DROPDUMP
+extern int		netdev_support_dropdump;
+#endif
 extern int		dev_weight_rx_bias;
 extern int		dev_weight_tx_bias;
 extern int		dev_rx_weight;
@@ -4080,6 +4077,14 @@ static inline void netdev_class_remove_file(const struct class_attribute *class_
 }
 
 extern const struct kobj_ns_type_operations net_ns_type_operations;
+
+extern ssize_t netdev_show_rps_map(struct netdev_rx_queue *queue, char *buf);
+extern ssize_t netdev_store_rps_map(struct netdev_rx_queue *queue,
+			     const char *buf, size_t len);
+extern ssize_t netdev_show_rps_dev_flow_table_cnt(struct netdev_rx_queue *queue,
+					   char *buf);
+extern ssize_t netdev_store_rps_dev_flow_table_cnt(struct netdev_rx_queue *queue,
+					    const char *buf, size_t len);
 
 const char *netdev_drivername(const struct net_device *dev);
 
@@ -4487,5 +4492,7 @@ do {								\
  */
 #define PTYPE_HASH_SIZE	(16)
 #define PTYPE_HASH_MASK	(PTYPE_HASH_SIZE - 1)
+
+#include <uapi/linux/net_dropdump.h>
 
 #endif	/* _LINUX_NETDEVICE_H */

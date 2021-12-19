@@ -2415,6 +2415,8 @@ static int resize_stripes(struct r5conf *conf, int newsize)
 	} else
 		err = -ENOMEM;
 
+	mutex_unlock(&conf->cache_size_mutex);
+
 	conf->slab_cache = sc;
 	conf->active_name = 1-conf->active_name;
 
@@ -2437,8 +2439,6 @@ static int resize_stripes(struct r5conf *conf, int newsize)
 
 	if (!err)
 		conf->pool_size = newsize;
-	mutex_unlock(&conf->cache_size_mutex);
-
 	return err;
 }
 
@@ -2538,8 +2538,7 @@ static void raid5_end_read_request(struct bio * bi)
 		int set_bad = 0;
 
 		clear_bit(R5_UPTODATE, &sh->dev[i].flags);
-		if (!(bi->bi_status == BLK_STS_PROTECTION))
-			atomic_inc(&rdev->read_errors);
+		atomic_inc(&rdev->read_errors);
 		if (test_bit(R5_ReadRepl, &sh->dev[i].flags))
 			pr_warn_ratelimited(
 				"md/raid:%s: read error on replacement device (sector %llu on %s).\n",
@@ -2571,9 +2570,7 @@ static void raid5_end_read_request(struct bio * bi)
 		    && !test_bit(R5_ReadNoMerge, &sh->dev[i].flags))
 			retry = 1;
 		if (retry)
-			if (sh->qd_idx >= 0 && sh->pd_idx == i)
-				set_bit(R5_ReadError, &sh->dev[i].flags);
-			else if (test_bit(R5_ReadNoMerge, &sh->dev[i].flags)) {
+			if (test_bit(R5_ReadNoMerge, &sh->dev[i].flags)) {
 				set_bit(R5_ReadError, &sh->dev[i].flags);
 				clear_bit(R5_ReadNoMerge, &sh->dev[i].flags);
 			} else
@@ -3593,7 +3590,6 @@ static int need_this_block(struct stripe_head *sh, struct stripe_head_state *s,
 	 * is missing/faulty, then we need to read everything we can.
 	 */
 	if (sh->raid_conf->level != 6 &&
-	    sh->raid_conf->rmw_level != PARITY_DISABLE_RMW &&
 	    sh->sector < sh->raid_conf->mddev->recovery_cp)
 		/* reconstruct-write isn't being forced */
 		return 0;
@@ -4186,7 +4182,7 @@ static void handle_parity_checks6(struct r5conf *conf, struct stripe_head *sh,
 		/* now write out any block on a failed drive,
 		 * or P or Q if they were recomputed
 		 */
-		dev = NULL;
+		BUG_ON(s->uptodate < disks - 1); /* We don't need Q to recover */
 		if (s->failed == 2) {
 			dev = &sh->dev[s->failed_num[1]];
 			s->locked++;
@@ -4210,14 +4206,6 @@ static void handle_parity_checks6(struct r5conf *conf, struct stripe_head *sh,
 			s->locked++;
 			set_bit(R5_LOCKED, &dev->flags);
 			set_bit(R5_Wantwrite, &dev->flags);
-		}
-		if (WARN_ONCE(dev && !test_bit(R5_UPTODATE, &dev->flags),
-			      "%s: disk%td not up to date\n",
-			      mdname(conf->mddev),
-			      dev - (struct r5dev *) &sh->dev)) {
-			clear_bit(R5_LOCKED, &dev->flags);
-			clear_bit(R5_Wantwrite, &dev->flags);
-			s->locked--;
 		}
 		clear_bit(STRIPE_DEGRADED, &sh->state);
 
@@ -4830,7 +4818,7 @@ static void handle_stripe(struct stripe_head *sh)
 	 * or to load a block that is being partially written.
 	 */
 	if (s.to_read || s.non_overwrite
-	    || (s.to_write && s.failed)
+	    || (conf->level == 6 && s.to_write && s.failed)
 	    || (s.syncing && (s.uptodate + s.compute < disks))
 	    || s.replacing
 	    || s.expanding)
@@ -5722,8 +5710,7 @@ static bool raid5_make_request(struct mddev *mddev, struct bio * bi)
 				do_flush = false;
 			}
 
-			if (!sh->batch_head || sh == sh->batch_head)
-				set_bit(STRIPE_HANDLE, &sh->state);
+			set_bit(STRIPE_HANDLE, &sh->state);
 			clear_bit(STRIPE_DELAYED, &sh->state);
 			if ((!sh->batch_head || sh == sh->batch_head) &&
 			    (bi->bi_opf & REQ_SYNC) &&

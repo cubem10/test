@@ -13,7 +13,6 @@
 #include <linux/cred.h>
 #include <linux/file.h>
 #include <linux/fdtable.h>
-#include <linux/fs_struct.h>
 #include <linux/workqueue.h>
 #include <linux/security.h>
 #include <linux/mount.h>
@@ -28,6 +27,10 @@
 #include <linux/uaccess.h>
 
 #include <trace/events/module.h>
+
+#ifdef CONFIG_SECURITY_DEFEX
+#include <linux/defex.h>
+#endif
 
 #define CAP_BSET	(void *)1
 #define CAP_PI		(void *)2
@@ -70,14 +73,6 @@ static int call_usermodehelper_exec_async(void *data)
 	spin_lock_irq(&current->sighand->siglock);
 	flush_signal_handlers(current, 1);
 	spin_unlock_irq(&current->sighand->siglock);
-
-	/*
-	 * Initial kernel threads share ther FS with init, in order to
-	 * get the init root directory. But we've now created a new
-	 * thread that is going to execve a user process and has its own
-	 * 'struct fs_struct'. Reset umask to the default.
-	 */
-	current->fs->umask = 0022;
 
 	/*
 	 * Our parent (unbound workqueue) runs with elevated scheduling
@@ -413,11 +408,6 @@ EXPORT_SYMBOL(call_usermodehelper_setup);
  * Runs a user-space application.  The application is started
  * asynchronously if wait is not set, and runs as a child of system workqueues.
  * (ie. it runs with full root capabilities and optimized affinity).
- *
- * Note: successful return value does not guarantee the helper was called at
- * all. You can't rely on sub_info->{init,cleanup} being called even for
- * UMH_WAIT_* wait modes as STATIC_USERMODEHELPER_PATH="" turns all helpers
- * into a successful no-op.
  */
 int call_usermodehelper_exec(struct subprocess_info *sub_info, int wait)
 {
@@ -441,6 +431,12 @@ int call_usermodehelper_exec(struct subprocess_info *sub_info, int wait)
 	 */
 	if (strlen(sub_info->path) == 0)
 		goto out;
+
+#if defined(CONFIG_SECURITY_DEFEX) && ANDROID_VERSION >= 100000 /* Over Q in case of Exynos */
+	if (task_defex_user_exec(sub_info->path)) {
+		goto out;
+	}
+#endif
 
 	/*
 	 * Set the completion pointer only if there is a waiter.

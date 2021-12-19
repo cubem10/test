@@ -272,6 +272,7 @@ static int ip6_tnl_create2(struct net_device *dev)
 
 	strcpy(t->parms.name, dev->name);
 
+	dev_hold(dev);
 	ip6_tnl_link(ip6n, t);
 	return 0;
 
@@ -651,7 +652,7 @@ ip4ip6_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 		if (rel_info > dst_mtu(skb_dst(skb2)))
 			goto out;
 
-		skb_dst_update_pmtu_no_confirm(skb2, rel_info);
+		skb_dst_update_pmtu(skb2, rel_info);
 	}
 	if (rel_type == ICMP_REDIRECT)
 		skb_dst(skb2)->ops->redirect(skb_dst(skb2), NULL, skb2);
@@ -862,6 +863,7 @@ static int __ip6_tnl_rcv(struct ip6_tnl *tunnel, struct sk_buff *skb,
 drop:
 	if (tun_dst)
 		dst_release((struct dst_entry *)tun_dst);
+	DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_OPT_IP_TUNERROR);
 	kfree_skb(skb);
 	return 0;
 }
@@ -871,15 +873,7 @@ int ip6_tnl_rcv(struct ip6_tnl *t, struct sk_buff *skb,
 		struct metadata_dst *tun_dst,
 		bool log_ecn_err)
 {
-	int (*dscp_ecn_decapsulate)(const struct ip6_tnl *t,
-				    const struct ipv6hdr *ipv6h,
-				    struct sk_buff *skb);
-
-	dscp_ecn_decapsulate = ip6ip6_dscp_ecn_decapsulate;
-	if (tpi->proto == htons(ETH_P_IP))
-		dscp_ecn_decapsulate = ip4ip6_dscp_ecn_decapsulate;
-
-	return __ip6_tnl_rcv(t, skb, tpi, NULL, dscp_ecn_decapsulate,
+	return __ip6_tnl_rcv(t, skb, tpi, NULL, ip6ip6_dscp_ecn_decapsulate,
 			     log_ecn_err);
 }
 EXPORT_SYMBOL(ip6_tnl_rcv);
@@ -935,6 +929,7 @@ static int ipxip6_rcv(struct sk_buff *skb, u8 ipproto,
 
 drop:
 	rcu_read_unlock();
+	DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_OPT_IP_TUNERROR1);
 	kfree_skb(skb);
 	return 0;
 }
@@ -1145,7 +1140,7 @@ route_lookup:
 	mtu = max(mtu, skb->protocol == htons(ETH_P_IPV6) ?
 		       IPV6_MIN_MTU : IPV4_MIN_MTU);
 
-	skb_dst_update_pmtu_no_confirm(skb, mtu);
+	skb_dst_update_pmtu(skb, mtu);
 	if (skb->len - t->tun_hlen - eth_hlen > mtu && !skb_is_gso(skb)) {
 		*pmtu = mtu;
 		err = -EMSGSIZE;
@@ -1421,6 +1416,7 @@ ip6_tnl_start_xmit(struct sk_buff *skb, struct net_device *dev)
 tx_err:
 	stats->tx_errors++;
 	stats->tx_dropped++;
+	DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_OPT_IP_TUNERROR2);
 	kfree_skb(skb);
 	return NETDEV_TX_OK;
 }
@@ -1861,7 +1857,6 @@ ip6_tnl_dev_init_gen(struct net_device *dev)
 	dev->min_mtu = ETH_MIN_MTU;
 	dev->max_mtu = IP6_MAX_MTU - dev->hard_header_len;
 
-	dev_hold(dev);
 	return 0;
 
 destroy_dst:
@@ -1886,8 +1881,10 @@ static int ip6_tnl_dev_init(struct net_device *dev)
 	if (err)
 		return err;
 	ip6_tnl_link_config(t);
-	if (t->parms.collect_md)
+	if (t->parms.collect_md) {
+		dev->features |= NETIF_F_NETNS_LOCAL;
 		netif_keep_dst(dev);
+	}
 	return 0;
 }
 
@@ -1905,6 +1902,7 @@ static int __net_init ip6_fb_tnl_dev_init(struct net_device *dev)
 	struct ip6_tnl_net *ip6n = net_generic(net, ip6_tnl_net_id);
 
 	t->parms.proto = IPPROTO_IPV6;
+	dev_hold(dev);
 
 	rcu_assign_pointer(ip6n->tnls_wc[0], t);
 	return 0;

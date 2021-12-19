@@ -23,6 +23,7 @@
 #include <linux/usb.h>
 #include <linux/usb/audio.h>
 #include <linux/usb/audio-v2.h>
+#include <linux/usb/exynos_usb_audio.h>
 
 #include <sound/core.h>
 #include <sound/info.h>
@@ -327,12 +328,6 @@ static int set_sample_rate_v1(struct snd_usb_audio *chip, int iface,
 	}
 
 	crate = data[0] | (data[1] << 8) | (data[2] << 16);
-	if (!crate) {
-		dev_info(&dev->dev, "failed to read current rate; disabling the check\n");
-		chip->sample_rate_read_error = 3; /* three strikes, see above */
-		return 0;
-	}
-
 	if (crate != rate) {
 		dev_warn(&dev->dev, "current rate %d is different from the runtime rate %d\n", crate, rate);
 		// runtime->rate = crate;
@@ -372,6 +367,29 @@ static int set_sample_rate_v2(struct snd_usb_audio *chip, int iface,
 	int clock;
 	bool writeable;
 	struct uac_clock_source_descriptor *cs_desc;
+	unsigned char ep;
+	unsigned char numEndpoints;
+	int direction;
+	int i;
+
+	numEndpoints = get_iface_desc(alts)->bNumEndpoints;
+	if (numEndpoints < 1)
+		return -EINVAL;
+	if (numEndpoints == 1) {
+		ep = get_endpoint(alts, 0)->bEndpointAddress;
+	} else {
+		for (i = 0; i < numEndpoints; i++) {
+			ep = get_endpoint(alts, i)->bmAttributes;
+			if (!(ep & 0x30)) {
+				ep = get_endpoint(alts, i)->bEndpointAddress;
+				break;
+			}
+		}
+	}
+	if (ep & 0x80)
+		direction = 1;
+	else
+		direction = 0;
 
 	clock = snd_usb_clock_find_source(chip, fmt->clock, true);
 	if (clock < 0)
@@ -418,8 +436,15 @@ static int set_sample_rate_v2(struct snd_usb_audio *chip, int iface,
 	 * interface is active. */
 	if (rate != prev_rate) {
 		usb_set_interface(dev, iface, 0);
+#ifdef CONFIG_SND_EXYNOS_USB_AUDIO
+		exynos_usb_audio_setintf(dev, fmt->iface, 0, direction);
+#endif
 		snd_usb_set_interface_quirk(dev);
 		usb_set_interface(dev, iface, fmt->altsetting);
+#ifdef CONFIG_SND_EXYNOS_USB_AUDIO
+		exynos_usb_audio_setintf(dev, fmt->iface,
+					fmt->altsetting, direction);
+#endif
 		snd_usb_set_interface_quirk(dev);
 	}
 

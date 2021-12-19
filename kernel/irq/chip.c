@@ -16,7 +16,6 @@
 #include <linux/interrupt.h>
 #include <linux/kernel_stat.h>
 #include <linux/irqdomain.h>
-#include <linux/wakeup_reason.h>
 
 #include <trace/events/irq.h>
 
@@ -391,8 +390,10 @@ static inline void mask_ack_irq(struct irq_desc *desc)
 
 void mask_irq(struct irq_desc *desc)
 {
+#if 0
 	if (irqd_irq_masked(&desc->irq_data))
 		return;
+#endif
 
 	if (desc->irq_data.chip->irq_mask) {
 		desc->irq_data.chip->irq_mask(&desc->irq_data);
@@ -402,8 +403,10 @@ void mask_irq(struct irq_desc *desc)
 
 void unmask_irq(struct irq_desc *desc)
 {
+#if 0
 	if (!irqd_irq_masked(&desc->irq_data))
 		return;
+#endif
 
 	if (desc->irq_data.chip->irq_unmask) {
 		desc->irq_data.chip->irq_unmask(&desc->irq_data);
@@ -481,22 +484,8 @@ static bool irq_may_run(struct irq_desc *desc)
 	 * If the interrupt is not in progress and is not an armed
 	 * wakeup interrupt, proceed.
 	 */
-	if (!irqd_has_set(&desc->irq_data, mask)) {
-#ifdef CONFIG_PM_SLEEP
-		if (unlikely(desc->no_suspend_depth &&
-			     irqd_is_wakeup_set(&desc->irq_data))) {
-			unsigned int irq = irq_desc_get_irq(desc);
-			const char *name = "(unnamed)";
-
-			if (desc->action && desc->action->name)
-				name = desc->action->name;
-
-			log_abnormal_wakeup_reason("misconfigured IRQ %u %s",
-						   irq, name);
-		}
-#endif
+	if (!irqd_has_set(&desc->irq_data, mask))
 		return true;
-	}
 
 	/*
 	 * If the interrupt is an armed wakeup source, mark it pending
@@ -949,8 +938,10 @@ __irq_do_set_handler(struct irq_desc *desc, irq_flow_handler_t handle,
 		if (desc->irq_data.chip != &no_irq_chip)
 			mask_ack_irq(desc);
 		irq_state_set_disabled(desc);
-		if (is_chained)
+		if (is_chained) {
+			printk("%s : desc action of irq_desc %llx becomes null\n", __func__, (unsigned long long)desc);
 			desc->action = NULL;
+		}
 		desc->depth = 1;
 	}
 	desc->handle_irq = handle;

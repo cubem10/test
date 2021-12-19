@@ -282,6 +282,9 @@ int snd_card_new(struct device *parent, int idx, const char *xid,
 		goto __error_ctl;
 	}
 	*card_ret = card;
+	dev_info(parent, "%s: card%d is created %s:%s\n", __func__, idx, 
+			dev_driver_string(card->dev), dev_name(&card->card_dev));
+
 	return 0;
 
       __error_ctl:
@@ -404,8 +407,10 @@ int snd_card_disconnect(struct snd_card *card)
 		return 0;
 	}
 	card->shutdown = 1;
+	spin_unlock(&card->files_lock);
 
 	/* replace file->f_op with special dummy operations */
+	spin_lock(&card->files_lock);
 	list_for_each_entry(mfile, &card->files_list, list) {
 		/* it's critical part, use endless loop */
 		/* we have no room to fail */

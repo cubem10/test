@@ -32,7 +32,6 @@
 #include <linux/backing-dev.h>
 #include <linux/rculist_bl.h>
 #include <linux/cleancache.h>
-#include <linux/fscrypt.h>
 #include <linux/fsnotify.h>
 #include <linux/lockdep.h>
 #include <linux/user_namespace.h>
@@ -281,7 +280,6 @@ static void __put_super(struct super_block *sb)
 {
 	if (!--sb->s_count) {
 		list_del_init(&sb->s_list);
-		fscrypt_sb_free(sb);
 		destroy_super(sb);
 	}
 }
@@ -860,6 +858,9 @@ int do_remount_sb2(struct vfsmount *mnt, struct super_block *sb, int sb_flags, v
 		if (force) {
 			sb->s_readonly_remount = 1;
 			smp_wmb();
+
+			if (sb->s_magic == F2FS_SUPER_MAGIC)
+				mnt = ERR_PTR(-EROFS);
 		} else {
 			retval = sb_prepare_remount_readonly(sb);
 			if (retval)
@@ -886,7 +887,14 @@ int do_remount_sb2(struct vfsmount *mnt, struct super_block *sb, int sb_flags, v
 			     sb->s_type->name, retval);
 		}
 	}
+
+#ifdef CONFIG_FIVE
+	sb->s_flags = (sb->s_flags & ~MS_RMT_MASK) |
+				(sb_flags & MS_RMT_MASK) | MS_I_VERSION;
+#else
 	sb->s_flags = (sb->s_flags & ~MS_RMT_MASK) | (sb_flags & MS_RMT_MASK);
+#endif
+
 	/* Needs to be ordered wrt mnt_is_readonly() */
 	smp_wmb();
 	sb->s_readonly_remount = 0;
@@ -1045,6 +1053,45 @@ static int ns_set_super(struct super_block *sb, void *data)
 	sb->s_fs_info = data;
 	return set_anon_super(sb, NULL);
 }
+
+#ifdef CONFIG_PROC_PARSE_OPTION_ON_MOUNT
+struct dentry *mount_ns_option(struct file_system_type *fs_type,
+	int flags, void *data, void *ns, struct user_namespace *user_ns,
+	int (*fill_super)(struct super_block *, void *, int),
+	int (*parse_options)(char *, struct pid_namespace *))
+{
+	struct super_block *sb;
+
+	/* Don't allow mounting unless the caller has CAP_SYS_ADMIN
+	 * over the namespace.
+	 */
+	if (!(flags & MS_KERNMOUNT) && !ns_capable(user_ns, CAP_SYS_ADMIN))
+		return ERR_PTR(-EPERM);
+
+	sb = sget_userns(fs_type, ns_test_super, ns_set_super, flags,
+			 user_ns, ns);
+	if (IS_ERR(sb))
+		return ERR_CAST(sb);
+
+	if (!parse_options(data, get_pid_ns(sb->s_fs_info)))
+		return ERR_PTR(-EINVAL);
+
+	if (!sb->s_root) {
+		int err;
+		err = fill_super(sb, data, flags & MS_SILENT ? 1 : 0);
+		if (err) {
+			deactivate_locked_super(sb);
+			return ERR_PTR(err);
+		}
+
+		sb->s_flags |= MS_ACTIVE;
+	}
+
+	return dget(sb->s_root);
+}
+
+EXPORT_SYMBOL(mount_ns_option);
+#endif
 
 struct dentry *mount_ns(struct file_system_type *fs_type,
 	int flags, void *data, void *ns, struct user_namespace *user_ns,
@@ -1356,11 +1403,36 @@ EXPORT_SYMBOL(__sb_end_write);
  */
 int __sb_start_write(struct super_block *sb, int level, bool wait)
 {
-	if (!wait)
-		return percpu_down_read_trylock(sb->s_writers.rw_sem + level-1);
+	bool force_trylock = false;
+	int ret = 1;
 
-	percpu_down_read(sb->s_writers.rw_sem + level-1);
-	return 1;
+#ifdef CONFIG_LOCKDEP
+	/*
+	 * We want lockdep to tell us about possible deadlocks with freezing
+	 * but it's it bit tricky to properly instrument it. Getting a freeze
+	 * protection works as getting a read lock but there are subtle
+	 * problems. XFS for example gets freeze protection on internal level
+	 * twice in some cases, which is OK only because we already hold a
+	 * freeze protection also on higher level. Due to these cases we have
+	 * to use wait == F (trylock mode) which must not fail.
+	 */
+	if (wait) {
+		int i;
+
+		for (i = 0; i < level - 1; i++)
+			if (percpu_rwsem_is_held(sb->s_writers.rw_sem + i)) {
+				force_trylock = true;
+				break;
+			}
+	}
+#endif
+	if (wait && !force_trylock)
+		percpu_down_read(sb->s_writers.rw_sem + level-1);
+	else
+		ret = percpu_down_read_trylock(sb->s_writers.rw_sem + level-1);
+
+	WARN_ON(force_trylock && !ret);
+	return ret;
 }
 EXPORT_SYMBOL(__sb_start_write);
 

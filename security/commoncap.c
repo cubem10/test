@@ -31,6 +31,14 @@
 #include <linux/binfmts.h>
 #include <linux/personality.h>
 
+#ifdef CONFIG_ANDROID_PARANOID_NETWORK
+#include <linux/android_aid.h>
+#endif
+
+#ifdef CONFIG_LOD_SEC
+#include <linux/linux_on_dex.h>
+#endif
+
 /*
  * If a non-root user executes a setuid-root binary in
  * !secure(SECURE_NOROOT) mode, then we raise capabilities.
@@ -73,6 +81,24 @@ int __cap_capable(const struct cred *cred, struct user_namespace *targ_ns,
 {
 	struct user_namespace *ns = targ_ns;
 
+/*
+ * Check the LoD capabilities
+ * If no cap, return EPERM immediately, skipping following checks
+ * If has cap, continue namespace check
+ */
+#ifdef CONFIG_LOD_SEC
+	if (cred_is_LOD(cred)) {
+		if (cap_raised(CAP_LOD_SET, cap) == 0){
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
+			if (cap != 21) //ignore 21 avoid flooding
+				printk(KERN_ERR "LOD cap_capable: blocking CAP %d PROC %s "
+					"PID %d UID %d\n", cap, current->comm, current->pid,
+					cred->uid.val);
+#endif
+			return -EPERM;
+		}
+	}
+#endif
 	/* See if cred has the capability in the target user namespace
 	 * by examining the target user namespace and all of the target
 	 * user namespace's parents.
@@ -109,7 +135,23 @@ int __cap_capable(const struct cred *cred, struct user_namespace *targ_ns,
 int cap_capable(const struct cred *cred, struct user_namespace *targ_ns,
 		int cap, int audit)
 {
-	return __cap_capable(cred, targ_ns, cap, audit);
+	int ret = __cap_capable(cred, targ_ns, cap, audit);
+
+#ifdef CONFIG_ANDROID_PARANOID_NETWORK
+	if (ret != 0 && cap == CAP_NET_RAW && in_egroup_p(AID_NET_RAW)) {
+		printk("Process %s granted CAP_NET_RAW from Android group net_raw.\n", current->comm);
+		printk("  Please update the .rc file to explictly set 'capabilities NET_RAW'\n");
+		printk("  Implicit grants are deprecated and will be removed in the future.\n");
+		return 0;
+	}
+	if (ret != 0 && cap == CAP_NET_ADMIN && in_egroup_p(AID_NET_ADMIN)) {
+		printk("Process %s granted CAP_NET_ADMIN from Android group net_admin.\n", current->comm);
+		printk("  Please update the .rc file to explictly set 'capabilities NET_ADMIN'\n");
+		printk("  Implicit grants are deprecated and will be removed in the future.\n");
+		return 0;
+	}
+#endif
+	return ret;
 }
 /**
  * cap_settime - Determine whether the current process may set the system clock
@@ -383,11 +425,10 @@ int cap_inode_getsecurity(struct inode *inode, const char *name, void **buffer,
 {
 	int size, ret;
 	kuid_t kroot;
-	u32 nsmagic, magic;
 	uid_t root, mappedroot;
 	char *tmpbuf = NULL;
 	struct vfs_cap_data *cap;
-	struct vfs_ns_cap_data *nscap = NULL;
+	struct vfs_ns_cap_data *nscap;
 	struct dentry *dentry;
 	struct user_namespace *fs_ns;
 
@@ -403,67 +444,52 @@ int cap_inode_getsecurity(struct inode *inode, const char *name, void **buffer,
 				 &tmpbuf, size, GFP_NOFS);
 	dput(dentry);
 
-	if (ret < 0 || !tmpbuf)
+	if (ret < 0)
 		return ret;
 
 	fs_ns = inode->i_sb->s_user_ns;
 	cap = (struct vfs_cap_data *) tmpbuf;
 	if (is_v2header((size_t) ret, cap)) {
-		root = 0;
-	} else if (is_v3header((size_t) ret, cap)) {
-		nscap = (struct vfs_ns_cap_data *) tmpbuf;
-		root = le32_to_cpu(nscap->rootid);
-	} else {
-		size = -EINVAL;
-		goto out_free;
+		/* If this is sizeof(vfs_cap_data) then we're ok with the
+		 * on-disk value, so return that.  */
+		if (alloc)
+			*buffer = tmpbuf;
+		else
+			kfree(tmpbuf);
+		return ret;
+	} else if (!is_v3header((size_t) ret, cap)) {
+		kfree(tmpbuf);
+		return -EINVAL;
 	}
 
+	nscap = (struct vfs_ns_cap_data *) tmpbuf;
+	root = le32_to_cpu(nscap->rootid);
 	kroot = make_kuid(fs_ns, root);
 
 	/* If the root kuid maps to a valid uid in current ns, then return
 	 * this as a nscap. */
 	mappedroot = from_kuid(current_user_ns(), kroot);
 	if (mappedroot != (uid_t)-1 && mappedroot != (uid_t)0) {
-		size = sizeof(struct vfs_ns_cap_data);
 		if (alloc) {
-			if (!nscap) {
-				/* v2 -> v3 conversion */
-				nscap = kzalloc(size, GFP_ATOMIC);
-				if (!nscap) {
-					size = -ENOMEM;
-					goto out_free;
-				}
-				nsmagic = VFS_CAP_REVISION_3;
-				magic = le32_to_cpu(cap->magic_etc);
-				if (magic & VFS_CAP_FLAGS_EFFECTIVE)
-					nsmagic |= VFS_CAP_FLAGS_EFFECTIVE;
-				memcpy(&nscap->data, &cap->data, sizeof(__le32) * 2 * VFS_CAP_U32);
-				nscap->magic_etc = cpu_to_le32(nsmagic);
-			} else {
-				/* use allocated v3 buffer */
-				tmpbuf = NULL;
-			}
+			*buffer = tmpbuf;
 			nscap->rootid = cpu_to_le32(mappedroot);
-			*buffer = nscap;
-		}
-		goto out_free;
+		} else
+			kfree(tmpbuf);
+		return size;
 	}
 
 	if (!rootid_owns_currentns(kroot)) {
-		size = -EOVERFLOW;
-		goto out_free;
+		kfree(tmpbuf);
+		return -EOPNOTSUPP;
 	}
 
 	/* This comes from a parent namespace.  Return as a v2 capability */
 	size = sizeof(struct vfs_cap_data);
 	if (alloc) {
-		if (nscap) {
-			/* v3 -> v2 conversion */
-			cap = kzalloc(size, GFP_ATOMIC);
-			if (!cap) {
-				size = -ENOMEM;
-				goto out_free;
-			}
+		*buffer = kmalloc(size, GFP_ATOMIC);
+		if (*buffer) {
+			struct vfs_cap_data *cap = *buffer;
+			__le32 nsmagic, magic;
 			magic = VFS_CAP_REVISION_2;
 			nsmagic = le32_to_cpu(nscap->magic_etc);
 			if (nsmagic & VFS_CAP_FLAGS_EFFECTIVE)
@@ -471,12 +497,9 @@ int cap_inode_getsecurity(struct inode *inode, const char *name, void **buffer,
 			memcpy(&cap->data, &nscap->data, sizeof(__le32) * 2 * VFS_CAP_U32);
 			cap->magic_etc = cpu_to_le32(magic);
 		} else {
-			/* use unconverted v2 */
-			tmpbuf = NULL;
+			size = -ENOMEM;
 		}
-		*buffer = cap;
 	}
-out_free:
 	kfree(tmpbuf);
 	return size;
 }
@@ -735,7 +758,6 @@ int cap_bprm_set_creds(struct linux_binprm *bprm)
 	int ret;
 	kuid_t root_uid;
 
-	new->cap_ambient = old->cap_ambient;
 	if (WARN_ON(!cap_ambient_invariant_ok(old)))
 		return -EPERM;
 

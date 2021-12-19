@@ -2,7 +2,7 @@
 #ifndef _UAPI__LINUX_NETLINK_H
 #define _UAPI__LINUX_NETLINK_H
 
-#include <linux/const.h>
+#include <linux/kernel.h>
 #include <linux/socket.h> /* for __kernel_sa_family_t */
 #include <linux/types.h>
 
@@ -31,7 +31,7 @@
 #define NETLINK_SMC		22	/* SMC monitoring */
 
 #define NETLINK_INET_DIAG	NETLINK_SOCK_DIAG
-
+#define NETLINK_KFREECESS       27
 #define MAX_LINKS 32		
 
 struct sockaddr_nl {

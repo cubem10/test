@@ -41,12 +41,6 @@
 /* PTWs cacheable, inner/outer WBWA */
 #define TCR_CACHE_FLAGS	TCR_IRGN_WBWA | TCR_ORGN_WBWA
 
-#ifdef CONFIG_KASAN_SW_TAGS
-#define TCR_KASAN_FLAGS TCR_TBI1
-#else
-#define TCR_KASAN_FLAGS 0
-#endif
-
 #define MAIR(attr, mt)	((attr) << ((mt) * 8))
 
 /*
@@ -65,37 +59,29 @@ ENDPROC(cpu_do_idle)
  * cpu_do_suspend - save CPU registers context
  *
  * x0: virtual address of context pointer
- *
- * This must be kept in sync with struct cpu_suspend_ctx in <asm/suspend.h>.
  */
 ENTRY(cpu_do_suspend)
 	mrs	x2, tpidr_el0
 	mrs	x3, tpidrro_el0
 	mrs	x4, contextidr_el1
-	mrs	x5, osdlr_el1
-	mrs	x6, cpacr_el1
-	mrs	x7, tcr_el1
-	mrs	x8, vbar_el1
-	mrs	x9, mdscr_el1
-	mrs	x10, oslsr_el1
-	mrs	x11, sctlr_el1
+	mrs	x5, cpacr_el1
+	mrs	x6, tcr_el1
+	mrs	x7, vbar_el1
+	mrs	x8, mdscr_el1
+	mrs	x9, oslsr_el1
+	mrs	x10, sctlr_el1
 alternative_if_not ARM64_HAS_VIRT_HOST_EXTN
-	mrs	x12, tpidr_el1
+	mrs	x11, tpidr_el1
 alternative_else
-	mrs	x12, tpidr_el2
+	mrs	x11, tpidr_el2
 alternative_endif
-	mrs	x13, sp_el0
+	mrs	x12, sp_el0
 	stp	x2, x3, [x0]
-	stp	x4, x5, [x0, #16]
-	stp	x6, x7, [x0, #32]
-	stp	x8, x9, [x0, #48]
-	stp	x10, x11, [x0, #64]
-	stp	x12, x13, [x0, #80]
-	/*
-	 * Save x18 as it may be used as a platform register, e.g. by shadow
-	 * call stack.
-	 */
-	str	x18, [x0, #96]
+	stp	x4, xzr, [x0, #16]
+	stp	x5, x6, [x0, #32]
+	stp	x7, x8, [x0, #48]
+	stp	x9, x10, [x0, #64]
+	stp	x11, x12, [x0, #80]
 	ret
 ENDPROC(cpu_do_suspend)
 
@@ -112,21 +98,14 @@ ENTRY(cpu_do_resume)
 	ldp	x9, x10, [x0, #48]
 	ldp	x11, x12, [x0, #64]
 	ldp	x13, x14, [x0, #80]
-	/*
-	 * Restore x18, as it may be used as a platform register, and clear
-	 * the buffer to minimize the risk of exposure when used for shadow
-	 * call stack.
-	 */
-	ldr	x18, [x0, #96]
-	str	xzr, [x0, #96]
 	msr	tpidr_el0, x2
 	msr	tpidrro_el0, x3
 	msr	contextidr_el1, x4
 	msr	cpacr_el1, x6
 
 	/* Don't change t0sz here, mask those bits when restoring */
-	mrs	x7, tcr_el1
-	bfi	x8, x7, TCR_T0SZ_OFFSET, TCR_TxSZ_WIDTH
+	mrs	x5, tcr_el1
+	bfi	x8, x5, TCR_T0SZ_OFFSET, TCR_TxSZ_WIDTH
 
 	msr	tcr_el1, x8
 	msr	vbar_el1, x9
@@ -150,7 +129,6 @@ alternative_endif
 	/*
 	 * Restore oslsr_el1 by writing oslar_el1
 	 */
-	msr	osdlr_el1, x5
 	ubfx	x11, x11, #1, #1
 	msr	oslar_el1, x11
 	reset_pmuserenr_el0 x0			// Disable PMU access from EL0
@@ -188,6 +166,9 @@ ENDPROC(cpu_do_switch_mm)
 	msr	ttbr1_el1, \tmp1
 	isb
 	tlbi	vmalle1
+#ifdef CONFIG_SOC_EXYNOS9820
+	tlbi    vaale1is, xzr                   // dummy TLBI
+#endif
 	dsb	nsh
 	isb
 .endm
@@ -198,7 +179,11 @@ ENDPROC(cpu_do_switch_mm)
  * This is the low-level counterpart to cpu_replace_ttbr1, and should not be
  * called by anything else. It can only be executed from a TTBR0 mapping.
  */
+#ifdef CONFIG_RKP_CFP_JOPP
+NOP_ENTRY(idmap_cpu_replace_ttbr1)
+#else
 ENTRY(idmap_cpu_replace_ttbr1)
+#endif
 	mrs	x2, daif
 	msr	daifset, #0xf
 
@@ -226,9 +211,15 @@ ENDPROC(idmap_cpu_replace_ttbr1)
 
 	.macro __idmap_kpti_put_pgtable_ent_ng, type
 	orr	\type, \type, #PTE_NG		// Same bit for blocks and pages
-	str	\type, [cur_\()\type\()p]	// Update the entry and ensure
-	dmb	sy				// that it is visible to all
-	dc	civac, cur_\()\type\()p		// CPUs.
+#ifdef CONFIG_UH_RKP
+	mov	x2, \type
+	mov	x1, cur_\()\type\()p		// Update the entry for uH rkp
+	str	x2, [x1]			// Need to check for corruption of each register
+#else
+	str	\type, [cur_\()\type\()p]	// Update the entry and ensure it
+#endif
+	dmb	sy
+	dc	civac, cur_\()\type\()p		// is visible to all CPUs.
 	.endm
 
 /*
@@ -238,7 +229,11 @@ ENDPROC(idmap_cpu_replace_ttbr1)
  */
 __idmap_kpti_flag:
 	.long	1
+#ifdef CONFIG_RKP_CFP_JOPP
+NOP_ENTRY(idmap_kpti_install_ng_mappings)
+#else
 ENTRY(idmap_kpti_install_ng_mappings)
+#endif
 	cpu		.req	w0
 	num_cpus	.req	w1
 	swapper_pa	.req	x2
@@ -265,14 +260,14 @@ ENTRY(idmap_kpti_install_ng_mappings)
 	/* We're the boot CPU. Wait for the others to catch up */
 	sevl
 1:	wfe
-	ldaxr	w17, [flag_ptr]
-	eor	w17, w17, num_cpus
-	cbnz	w17, 1b
+	ldaxr	w18, [flag_ptr]
+	eor	w18, w18, num_cpus
+	cbnz	w18, 1b
 
 	/* We need to walk swapper, so turn off the MMU. */
-	mrs	x17, sctlr_el1
-	bic	x17, x17, #SCTLR_ELx_M
-	msr	sctlr_el1, x17
+	mrs	x18, sctlr_el1
+	bic	x18, x18, #SCTLR_ELx_M
+	msr	sctlr_el1, x18
 	isb
 
 	/* Everybody is enjoying the idmap, so we can rewrite swapper. */
@@ -295,18 +290,9 @@ skip_pgd:
 	isb
 
 	/* We're done: fire up the MMU again */
-	mrs	x17, sctlr_el1
-	orr	x17, x17, #SCTLR_ELx_M
-	msr	sctlr_el1, x17
-	isb
-
-	/*
-	 * Invalidate the local I-cache so that any instructions fetched
-	 * speculatively from the PoC are discarded, since they may have
-	 * been dynamically patched at the PoU.
-	 */
-	ic	iallu
-	dsb	nsh
+	mrs	x18, sctlr_el1
+	orr	x18, x18, #SCTLR_ELx_M
+	msr	sctlr_el1, x18
 	isb
 
 	/* Set the flag to zero to indicate that we're all done */
@@ -367,9 +353,33 @@ skip_pte:
 	b.ne	do_pte
 	b	next_pmd
 
+	/* Secondary CPUs end up here */
+__idmap_kpti_secondary:
+	/* Uninstall swapper before surgery begins */
+	__idmap_cpu_set_reserved_ttbr1 x18, x17
+
+	/* Increment the flag to let the boot CPU we're ready */
+1:	ldxr	w18, [flag_ptr]
+	add	w18, w18, #1
+	stxr	w17, w18, [flag_ptr]
+	cbnz	w17, 1b
+
+	/* Wait for the boot CPU to finish messing around with swapper */
+	sevl
+1:	wfe
+	ldxr	w18, [flag_ptr]
+	cbnz	w18, 1b
+
+	/* All done, act like nothing happened */
+	msr	ttbr1_el1, swapper_ttb
+	isb
+	ret
+
 	.unreq	cpu
 	.unreq	num_cpus
 	.unreq	swapper_pa
+	.unreq	swapper_ttb
+	.unreq	flag_ptr
 	.unreq	cur_pgdp
 	.unreq	end_pgdp
 	.unreq	pgd
@@ -382,31 +392,6 @@ skip_pte:
 	.unreq	cur_ptep
 	.unreq	end_ptep
 	.unreq	pte
-
-	/* Secondary CPUs end up here */
-__idmap_kpti_secondary:
-	/* Uninstall swapper before surgery begins */
-	__idmap_cpu_set_reserved_ttbr1 x16, x17
-
-	/* Increment the flag to let the boot CPU we're ready */
-1:	ldxr	w16, [flag_ptr]
-	add	w16, w16, #1
-	stxr	w17, w16, [flag_ptr]
-	cbnz	w17, 1b
-
-	/* Wait for the boot CPU to finish messing around with swapper */
-	sevl
-1:	wfe
-	ldxr	w16, [flag_ptr]
-	cbnz	w16, 1b
-
-	/* All done, act like nothing happened */
-	msr	ttbr1_el1, swapper_ttb
-	isb
-	ret
-
-	.unreq	swapper_ttb
-	.unreq	flag_ptr
 ENDPROC(idmap_kpti_install_ng_mappings)
 	.popsection
 #endif
@@ -420,6 +405,9 @@ ENDPROC(idmap_kpti_install_ng_mappings)
 	.pushsection ".idmap.text", "awx"
 ENTRY(__cpu_setup)
 	tlbi	vmalle1				// Invalidate local TLB
+#ifdef CONFIG_SOC_EXYNOS9820
+	tlbi    vaale1is, xzr                   // dummy TLBI
+#endif
 	dsb	nsh
 
 	mov	x0, #3 << 20
@@ -451,14 +439,17 @@ ENTRY(__cpu_setup)
 	/*
 	 * Prepare SCTLR
 	 */
-	mov_q	x0, SCTLR_EL1_SET
+	adr	x5, crval
+	ldp	w5, w6, [x5]
+	mrs	x0, sctlr_el1
+	bic	x0, x0, x5			// clear bits
+	orr	x0, x0, x6			// set bits
 	/*
 	 * Set/prepare TCR and TTBR. We use 512GB (39-bit) address range for
 	 * both user and kernel.
 	 */
 	ldr	x10, =TCR_TxSZ(VA_BITS) | TCR_CACHE_FLAGS | TCR_SMP_FLAGS | \
-			TCR_TG_FLAGS | TCR_ASID16 | TCR_TBI0 | TCR_A1 | \
-			TCR_KASAN_FLAGS
+			TCR_TG_FLAGS | TCR_ASID16 | TCR_TBI0 | TCR_A1
 	tcr_set_idmap_t0sz	x10, x9
 
 	/*
@@ -477,8 +468,8 @@ ENTRY(__cpu_setup)
 	cmp	x9, #2
 	b.lt	1f
 #ifdef CONFIG_ARM64_ERRATUM_1024718
-	/* Disable hardware DBM on Cortex-A55 all versions */
-	cpu_midr_match MIDR_CORTEX_A55, MIDR_CPU_VAR_REV(0, 0), MIDR_CPU_VAR_REV(0xf, 0xf), x1, x2, x3, x4
+	/* Disable hardware DBM on Cortex-A55 r0p0, r0p1 & r1p0 */
+	cpu_midr_match MIDR_CORTEX_A55, MIDR_CPU_VAR_REV(0, 0), MIDR_CPU_VAR_REV(1, 0), x1, x2, x3, x4
 	cbnz	x1, 1f
 #endif
 	orr	x10, x10, #TCR_HD		// hardware Dirty flag update
@@ -488,3 +479,21 @@ ENTRY(__cpu_setup)
 	msr	tcr_el1, x10
 	ret					// return to head.S
 ENDPROC(__cpu_setup)
+
+	/*
+	 * We set the desired value explicitly, including those of the
+	 * reserved bits. The values of bits EE & E0E were set early in
+	 * el2_setup, which are left untouched below.
+	 *
+	 *                 n n            T
+	 *       U E      WT T UD     US IHBS
+	 *       CE0      XWHW CZ     ME TEEA S
+	 * .... .IEE .... NEAI TE.I ..AD DEN0 ACAM
+	 * 0011 0... 1101 ..0. ..0. 10.. .0.. .... < hardware reserved
+	 * .... .1.. .... 01.1 11.1 ..01 0.01 1101 < software settings
+	 */
+	.type	crval, #object
+crval:
+	.word	0xfcffffff			// clear
+	.word	0x34d5d91d			// set
+	.popsection
