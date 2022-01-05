@@ -78,7 +78,7 @@
 			29 01 00 00 00 00 03 B6 BC 0A		/* CAPS ELVSS Set(ACL ON : 0x8C) */
 			29 01 00 00 00 00 03 F4 7B 1E		/* VINT Set */
 			29 01 00 00 00 00 02 F7 03		/* Gamma, LTPS(AID) update */
-			29 01 00 00 78 00 03 F0 A5 A5		/* TEST KEY Disable */
+			29 01 00 00 50 00 03 F0 A5 A5		/* TEST KEY Disable */
 
 			/* Memory Access */
 			05 01 00 00 00 00 02 2C 00

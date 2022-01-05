@@ -77,6 +77,7 @@ struct sec_param_data {
 #if defined (CONFIG_KEEP_JIG_LOW)
 	unsigned int keep_jig_low;
 #endif
+	unsigned int force_upload_flag;
 };
 
 struct sec_param_data_s {

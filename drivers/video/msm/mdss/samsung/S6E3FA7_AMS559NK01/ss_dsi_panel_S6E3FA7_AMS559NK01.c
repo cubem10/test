@@ -150,6 +150,7 @@ static int mdss_panel_on_post(struct mdss_dsi_ctrl_pdata *ctrl)
 
 	pr_info("%s %d\n", __func__, ndx);
 
+	self_mask_img_write(ctrl);
 	ss_self_mask_on(ctrl, 1);
 
 	return true;

@@ -45,15 +45,15 @@ static DEFINE_MUTEX(device_list_lock);
 static int gpio_irq;
 static struct etspi_data *g_data;
 static DECLARE_WAIT_QUEUE_HEAD(interrupt_waitq);
-static unsigned bufsiz = 1024;
-module_param(bufsiz, uint, S_IRUGO);
+static unsigned int bufsiz = 1024;
+module_param(bufsiz, uint, 0444);
 MODULE_PARM_DESC(bufsiz, "data bytes in biggest supported SPI message");
 
 void etspi_pin_control(struct etspi_data *etsspi, bool pin_set)
 {
 	int status = 0;
-	etsspi->p->state = NULL;
 
+	etsspi->p->state = NULL;
 	if (pin_set) {
 		if (!IS_ERR(etsspi->pins_idle)) {
 			status = pinctrl_select_state(etsspi->p,
@@ -75,14 +75,15 @@ void etspi_pin_control(struct etspi_data *etsspi, bool pin_set)
 	}
 }
 
-static irqreturn_t etspi_fingerprint_interrupt(int irq , void *dev_id)
+static irqreturn_t etspi_fingerprint_interrupt(int irq, void *dev_id)
 {
 	struct etspi_data *etspi = (struct etspi_data *)dev_id;
+
 	etspi->int_count++;
 	etspi->finger_on = 1;
 	disable_irq_nosync(gpio_irq);
-
 	wake_up_interruptible(&interrupt_waitq);
+	wake_lock_timeout(&etspi->fp_signal_lock, 1 * HZ);
 	pr_info("%s FPS triggered.int_count(%d) On(%d)\n", __func__,
 		etspi->int_count, etspi->finger_on);
 	return IRQ_HANDLED;
@@ -95,9 +96,9 @@ int etspi_Interrupt_Init(
 		int detect_threshold)
 {
 	int status = 0;
+
 	etspi->finger_on = 0;
 	etspi->int_count = 0;
-
 	pr_info("%s int_ctrl = %d detect_period = %d detect_threshold = %d\n",
 				__func__,
 				int_ctrl,
@@ -127,7 +128,7 @@ int etspi_Interrupt_Init(
 		}
 	}
 done:
-	return 0;
+	return status;
 }
 
 int etspi_Interrupt_Free(struct etspi_data *etspi)
@@ -160,6 +161,7 @@ unsigned int etspi_fps_interrupt_poll(
 {
 	unsigned int mask = 0;
 	struct etspi_data *etspi = file->private_data;
+
 	pr_debug("%s FPS fps_interrupt_poll, finger_on(%d), int_count(%d)\n",
 		__func__, etspi->finger_on, etspi->int_count);
 
@@ -200,11 +202,11 @@ static void etspi_power_control(struct etspi_data *etspi, int status)
 			gpio_set_value(etspi->ldo_pin, 1);
 		if (etspi->ldo_pin2)
 			gpio_set_value(etspi->ldo_pin2, 1);
-		usleep_range(50, 100);
+		usleep_range(1100, 1150);
 		if (etspi->sleepPin)
 			gpio_set_value(etspi->sleepPin, 1);
 		etspi_pin_control(etspi, true);
-		usleep_range(5000, 5050);
+		usleep_range(10000, 10050);
 	} else if (status == 0) {
 		etspi_pin_control(etspi, false);
 		if (etspi->sleepPin)
@@ -242,6 +244,7 @@ static ssize_t etspi_write(struct file *filp,
 	return 0;
 }
 
+
 static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	int err = 0, retval = 0;
@@ -250,7 +253,6 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	u32 tmp;
 	struct egis_ioc_transfer *ioc = NULL;
 	u8 *buf, *address, *result, *fr;
-
 	/* Check type and command number */
 	if (_IOC_TYPE(cmd) != EGIS_IOC_MAGIC) {
 		pr_err("%s _IOC_TYPE(cmd) != EGIS_IOC_MAGIC", __func__);
@@ -298,13 +300,13 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	tmp = _IOC_SIZE(cmd);
 	if ((tmp == 0) || (tmp % sizeof(struct egis_ioc_transfer)) != 0) {
+		pr_err("%s ioc size error\n", __func__);
 		retval = -EINVAL;
 		goto out;
 	}
 	/* copy into scratch area */
 	ioc = kmalloc(tmp, GFP_KERNEL);
-	if (ioc == NULL) {
-		pr_err("%s kmalloc error\n", __func__);
+	if (!ioc) {
 		retval = -ENOMEM;
 		goto out;
 	}
@@ -349,7 +351,8 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		address = ioc->tx_buf;
 		result = ioc->rx_buf;
 		pr_debug("%s FP_REGISTER_MREAD\n", __func__);
-		retval = etspi_io_read_registerex(etspi, address, result, ioc->len);
+		retval = etspi_io_read_registerex(etspi, address, result,
+				ioc->len);
 		if (retval < 0) {
 			pr_err("%s FP_REGISTER_MREAD error retval = %d\n"
 			, __func__, retval);
@@ -403,7 +406,8 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 		break;
 	case FP_NVM_WRITE:
-		pr_debug("%s FP_NVM_WRITE, (%d)\n", __func__, spi->max_speed_hz);
+		pr_debug("%s FP_NVM_WRITE, (%d)\n", __func__,
+				spi->max_speed_hz);
 		retval = etspi_io_nvm_write(etspi, ioc);
 		if (retval < 0) {
 			pr_err("%s FP_NVM_WRITE error retval = %d\n"
@@ -418,7 +422,8 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 		break;
 	case FP_NVM_WRITEEX:
-		pr_debug("%s FP_NVM_WRITEEX, (%d)\n", __func__, spi->max_speed_hz);
+		pr_debug("%s FP_NVM_WRITEEX, (%d)\n", __func__,
+				spi->max_speed_hz);
 		retval = etspi_io_nvm_writeex(etspi, ioc);
 		if (retval < 0) {
 			pr_err("%s FP_NVM_WRITEEX error retval = %d\n"
@@ -482,15 +487,16 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case FP_RESET_SET:
 		break;
 
-
 	case FP_POWER_CONTROL:
 	case FP_POWER_CONTROL_ET510:
-		pr_info("%s FP_POWER_CONTROL, status = %d\n", __func__, ioc->len);
+		pr_info("%s FP_POWER_CONTROL, status = %d\n", __func__,
+				ioc->len);
 		etspi_power_control(etspi, ioc->len);
 		break;
 
 	case FP_SET_SPI_CLOCK:
-		pr_info("%s FP_SET_SPI_CLOCK, clock = %d\n", __func__, ioc->speed_hz);
+		pr_info("%s FP_SET_SPI_CLOCK, clock = %d\n", __func__,
+				ioc->speed_hz);
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
 		if (etspi->enabled_clk) {
 			if (spi->max_speed_hz == ioc->speed_hz) {
@@ -504,9 +510,7 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 					pr_err("%s: couldn't disable spi clks\n"
 						, __func__);
 				usleep_range(950, 1000);
-#ifdef FEATURE_SPI_WAKELOCK
 				wake_unlock(&etspi->fp_spi_lock);
-#endif
 				etspi->enabled_clk = false;
 			}
 		}
@@ -522,9 +526,7 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 					__func__);
 		}
 		usleep_range(950, 1000);
-#ifdef FEATURE_SPI_WAKELOCK
 		wake_lock(&etspi->fp_spi_lock);
-#endif
 		etspi->enabled_clk = true;
 #else
 		spi->max_speed_hz = ioc->speed_hz;
@@ -532,7 +534,7 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 
 	/*
-	 * Trigger inital routine
+	 * Trigger initial routine
 	 */
 	case INT_TRIGGER_INIT:
 		pr_debug("%s Trigger function init\n", __func__);
@@ -553,7 +555,7 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		etspi_Interrupt_Abort(etspi);
 		break;
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
-	case FP_DIABLE_SPI_CLOCK:
+	case FP_DISABLE_SPI_CLOCK:
 		pr_info("%s FP_DISABLE_SPI_CLOCK\n", __func__);
 
 		if (etspi->enabled_clk) {
@@ -564,9 +566,7 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				pr_err("%s: couldn't disable spi clks\n"
 					, __func__);
 			usleep_range(950, 1000);
-#ifdef FEATURE_SPI_WAKELOCK
 			wake_unlock(&etspi->fp_spi_lock);
-#endif
 			etspi->enabled_clk = false;
 		}
 		break;
@@ -578,13 +578,14 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 					__func__, ioc->len, retry_cnt);
 			if (etspi->min_cpufreq_limit) {
 				do {
-					retval = set_freq_limit(DVFS_FINGER_ID, etspi->min_cpufreq_limit);
+					retval = set_freq_limit(DVFS_FINGER_ID,
+							etspi->min_cpufreq_limit);
 					retry_cnt++;
 					if (retval) {
 						pr_err("%s: booster start failed. (%d) retry: %d\n"
-							, __func__, retval, retry_cnt);
-						if (retry_cnt < 7)
-							usleep_range(500, 510);
+							, __func__, retval,
+							retry_cnt);
+						usleep_range(500, 510);
 					}
 				} while (retval && retry_cnt < 7);
 			}
@@ -597,10 +598,19 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 		break;
 	case FP_SET_SENSOR_TYPE:
-		if ((int)ioc->len >= SENSOR_UNKNOWN && (int)ioc->len < (SENSOR_STATUS_SIZE - 1)) {
-			etspi->sensortype = (int)ioc->len;
-			pr_info("%s FP_SET_SENSOR_TYPE :%s\n", __func__,
-				sensor_status[g_data->sensortype + 1]);
+		if ((int)ioc->len >= SENSOR_OOO &&
+				(int)ioc->len < SENSOR_MAXIMUM) {
+			if ((int)ioc->len == SENSOR_OOO &&
+					etspi->sensortype == SENSOR_FAILED) {
+				pr_info("%s maintain type check from out of order :%s\n",
+					__func__,
+					sensor_status[g_data->sensortype + 2]);
+			} else {
+				etspi->sensortype = (int)ioc->len;
+				pr_info("%s FP_SET_SENSOR_TYPE :%s\n",
+					__func__,
+					sensor_status[g_data->sensortype + 2]);
+			}
 		} else {
 			pr_err("%s FP_SET_SENSOR_TYPE invalid value %d\n",
 					__func__, (int)ioc->len);
@@ -614,7 +624,21 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		pr_info("%s FP_SET_WAKE_UP_SIGNAL\n", __func__);
 		break;
 #endif
+	case FP_SENSOR_ORIENT:
+		pr_info("%s: orient is %d(0: normal, 1: upside down)\n",
+			__func__, etspi->orient);
+
+		retval = put_user(etspi->orient, (u8 __user *) (uintptr_t)ioc->rx_buf);
+		if (retval != 0)
+			pr_err("%s FP_SENSOR_ORIENT put_user fail: %d\n", __func__, retval);
+		break;
+
+	case FP_SPI_VALUE:
+		etspi->spi_value = ioc->len;
+		pr_info("%s spi_value: 0x%x\n", __func__,etspi->spi_value);
+			break;
 	case FP_IOCTL_RESERVED_01:
+	case FP_IOCTL_RESERVED_02:
 			break;
 	default:
 		retval = -EFAULT;
@@ -653,8 +677,7 @@ static int etspi_open(struct inode *inode, struct file *filp)
 	pr_info("%s\n", __func__);
 	mutex_lock(&device_list_lock);
 
-	list_for_each_entry(etspi, &device_list, device_entry)
-	{
+	list_for_each_entry(etspi, &device_list, device_entry) {
 		if (etspi->devt == inode->i_rdev) {
 			status = 0;
 			break;
@@ -715,8 +738,8 @@ static int etspi_release(struct inode *inode, struct file *filp)
 int etspi_platformInit(struct etspi_data *etspi)
 {
 	int status = 0;
-	pr_info("%s\n", __func__);
 
+	pr_info("%s\n", __func__);
 	/* gpio setting for ldo, ldo2, sleep, drdy pin */
 	if (etspi != NULL) {
 		etspi->drdy_irq_flag = DRDY_IRQ_DISABLE;
@@ -765,7 +788,8 @@ int etspi_platformInit(struct etspi_data *etspi)
 
 		gpio_direction_output(etspi->sleepPin, 0);
 		if (status < 0) {
-			pr_err("%s gpio_direction_output SLEEP failed\n", __func__);
+			pr_err("%s gpio_direction_output SLEEP failed\n",
+					__func__);
 			status = -EBUSY;
 			goto etspi_platformInit_sleep_failed;
 		}
@@ -801,12 +825,11 @@ int etspi_platformInit(struct etspi_data *etspi)
 	}
 
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
-#ifdef FEATURE_SPI_WAKELOCK
 	wake_lock_init(&etspi->fp_spi_lock,
 		WAKE_LOCK_SUSPEND, "etspi_wake_lock");
 #endif
-#endif
-
+	wake_lock_init(&etspi->fp_signal_lock,
+				WAKE_LOCK_SUSPEND, "etspi_sigwake_lock");
 	pr_info("%s successful status=%d\n", __func__, status);
 	return status;
 etspi_platformInit_gpio_init_failed:
@@ -846,10 +869,9 @@ void etspi_platformUninit(struct etspi_data *etspi)
 		if (etspi->buckenPin)
 			gpio_free(etspi->buckenPin);
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
-#ifdef FEATURE_SPI_WAKELOCK
 		wake_lock_destroy(&etspi->fp_spi_lock);
 #endif
-#endif
+		wake_lock_destroy(&etspi->fp_signal_lock);
 	}
 }
 
@@ -934,6 +956,16 @@ static int etspi_parse_dt(struct device *dev,
 		&data->min_cpufreq_limit))
 		data->min_cpufreq_limit = 0;
 
+	if (of_property_read_u32(np, "etspi-orient", &data->orient))
+		data->orient = 0;
+	pr_info("%s: orient: %d\n", __func__, data->orient);
+
+	if (of_property_read_string_index(np, "etspi-chipid", 0,
+			(const char **)&data->chipid)) {
+		data->chipid = NULL;
+	}
+	pr_info("%s: chipid: %s\n", __func__, data->chipid);
+
 	data->p = pinctrl_get_select(dev, "default");
 	if (IS_ERR(data->p)) {
 		errorno = -EINVAL;
@@ -985,7 +1017,7 @@ static int etspi_type_check(struct etspi_data *etspi)
 
 	etspi_power_control(g_data, 1);
 
-	mdelay(20);
+	msleep(20);
 
 	etspi_read_register(etspi, 0x20, &buf1);
 	etspi_read_register(etspi, 0x21, &buf2);
@@ -1014,6 +1046,14 @@ static int etspi_type_check(struct etspi_data *etspi)
 }
 #endif
 #ifdef CONFIG_SENSORS_FINGERPRINT_SYSFS
+static ssize_t etspi_bfs_values_show(struct device *dev,
+				      struct device_attribute *attr, char *buf)
+{
+	struct etspi_data *data = dev_get_drvdata(dev);
+
+	return snprintf(buf, PAGE_SIZE, "\"FP_SPICLK\":\"%d\"\n",
+			data->spi->max_speed_hz);
+}
 static ssize_t etspi_type_check_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -1038,6 +1078,7 @@ static ssize_t etspi_adm_show(struct device *dev,
 {
 	return sprintf(buf, "%d\n", DETECT_ADM);
 }
+static DEVICE_ATTR(bfs_values, 0444, etspi_bfs_values_show, NULL);
 static DEVICE_ATTR(type_check, S_IRUGO,
 	etspi_type_check_show, NULL);
 static DEVICE_ATTR(vendor, S_IRUGO,
@@ -1048,6 +1089,7 @@ static DEVICE_ATTR(adm, S_IRUGO,
 	etspi_adm_show, NULL);
 
 static struct device_attribute *fp_attrs[] = {
+	&dev_attr_bfs_values,
 	&dev_attr_type_check,
 	&dev_attr_vendor,
 	&dev_attr_name,
@@ -1071,7 +1113,7 @@ static void etspi_work_func_debug(struct work_struct *work)
 		__func__,
 		ldo_value, gpio_get_value(g_data->sleepPin),
 		g_data->tz_mode,
-		sensor_status[g_data->sensortype + 1]);
+		sensor_status[g_data->sensortype + 2]);
 }
 
 static void etspi_enable_debug_timer(void)
@@ -1096,6 +1138,7 @@ static void etspi_timer_func(unsigned long ptr)
 static int etspi_set_timer(struct etspi_data *etspi)
 {
 	int status = 0;
+
 	setup_timer(&etspi->dbg_timer,
 		etspi_timer_func, (unsigned long)etspi);
 	etspi->wq_dbg =
@@ -1128,10 +1171,8 @@ static int etspi_probe(struct spi_device *spi)
 
 	/* Allocate driver data */
 	etspi = kzalloc(sizeof(*etspi), GFP_KERNEL);
-	if (etspi == NULL) {
-		pr_err("%s - Failed to kzalloc\n", __func__);
+	if (!etspi)
 		return -ENOMEM;
-	}
 
 	/* device tree call */
 	if (spi->dev.of_node) {
@@ -1171,22 +1212,24 @@ static int etspi_probe(struct spi_device *spi)
 		return status;
 	}
 #endif
-
+	etspi->spi_value = 0;
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
 	etspi->sensortype = SENSOR_UNKNOWN;
 #else
 	/* sensor hw type check */
 	do {
-		etspi_type_check(etspi);
+		status = etspi_type_check(etspi);
 		pr_info("%s type (%u), retry (%d)\n"
 			, __func__, etspi->sensortype, retry);
 	} while (!etspi->sensortype && ++retry < 3);
+
+	if (status == -ENODEV)
+		pr_info("%s type check fail\n", __func__);
 #endif
 
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
 	etspi->tz_mode = true;
 #endif
-
 	/* If we can allocate a minor number, hook up this device.
 	 * Reusing minors is fine so long as udev or mdev is working.
 	 */
@@ -1195,8 +1238,8 @@ static int etspi_probe(struct spi_device *spi)
 	if (minor < N_SPI_MINORS) {
 		struct device *dev;
 		etspi->devt = MKDEV(ET510_MAJOR, minor);
-		dev = device_create(etspi_class, &spi->dev, etspi->devt,
-				    etspi, "esfp0");
+		dev = device_create(etspi_class, &spi->dev,
+				etspi->devt, etspi, "esfp0");
 		status = IS_ERR(dev) ? PTR_ERR(dev) : 0;
 	} else{
 		dev_dbg(&spi->dev, "no minor number available!\n");
@@ -1331,6 +1374,7 @@ static struct spi_driver etspi_spi_driver = {
 static int __init etspi_init(void)
 {
 	int status;
+
 	pr_info("%s\n", __func__);
 
 #if defined(CONFIG_SENSORS_FINGERPRINT_DUALIZATION) \
@@ -1349,7 +1393,8 @@ static int __init etspi_init(void)
 	BUILD_BUG_ON(N_SPI_MINORS > 256);
 	status = register_chrdev(ET510_MAJOR, "egis_fingerprint", &etspi_fops);
 	if (status < 0) {
-		pr_err("%s register_chrdev error.\n", __func__);
+		pr_err("%s register_chrdev error.status:%d\n", __func__,
+				status);
 		return status;
 	}
 
@@ -1365,6 +1410,7 @@ static int __init etspi_init(void)
 		pr_err("%s spi_register_driver error.\n", __func__);
 		class_destroy(etspi_class);
 		unregister_chrdev(ET510_MAJOR, etspi_spi_driver.driver.name);
+		return status;
 	}
 
 	pr_info("%s is successful\n", __func__);

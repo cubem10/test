@@ -413,6 +413,15 @@ static bool s2mu005_chg_init(struct s2mu005_charger_data *charger)
 	dev_info(charger->dev, "%s : DEV ID : 0x%x\n", __func__,
 			charger->dev_id);
 
+/* s2mu005 : CHG 0xAF[7]=1 for SMPL issue, 0xAF[7]=0 for JIG case */
+#if !defined(CONFIG_SEC_FACTORY)
+	if (charger->dev_id == 3) {
+		s2mu005_update_reg(charger->client, 0xAF, 1 << 7, 1 << 7);
+		s2mu005_read_reg(charger->client, 0xAF, &temp);
+		dev_info(charger->dev, "[DEBUG]%s : 0xAF(0x%x)\n", __func__, temp);
+	}
+#endif
+
 	/* ready for self-discharge */
 	s2mu005_update_reg(charger->client, S2MU005_REG_SELFDIS_CFG3,
 			SELF_DISCHG_MODE_MASK, SELF_DISCHG_MODE_MASK);

@@ -133,23 +133,23 @@ endif
 
 #Tweak defconfig for FACTORY KERNEL without additional fac_defcofig
 define modi-facdefconfig64
-chmod 664 kernel/arch/arm64/configs/$(VARIANT_DEFCONFIG)
-echo -e "\nCONFIG_SEC_FACTORY=y" >> kernel/arch/arm64/configs/$(VARIANT_DEFCONFIG)
+chmod 664 $(TARGET_KERNEL_SOURCE)/arch/arm64/configs/$(VARIANT_DEFCONFIG)
+echo -e "\nCONFIG_SEC_FACTORY=y" >> $(TARGET_KERNEL_SOURCE)/arch/arm64/configs/$(VARIANT_DEFCONFIG)
 endef
 
 define modi-facdefconfig
-chmod 664 kernel/arch/arm/configs/$(VARIANT_DEFCONFIG)
-echo -e "\nCONFIG_SEC_FACTORY=y" >> kernel/arch/arm/configs/$(VARIANT_DEFCONFIG)
+chmod 664 $(TARGET_KERNEL_SOURCE)/arch/arm/configs/$(VARIANT_DEFCONFIG)
+echo -e "\nCONFIG_SEC_FACTORY=y" >> $(TARGET_KERNEL_SOURCE)/arch/arm/configs/$(VARIANT_DEFCONFIG)
 endef
 
 define modi-shipdefconfig64
-chmod 664 kernel/arch/arm64/configs/$(VARIANT_DEFCONFIG)
-echo -e "\nCONFIG_SAMSUNG_PRODUCT_SHIP=y" >> kernel/arch/arm64/configs/$(VARIANT_DEFCONFIG)
+chmod 664 $(TARGET_KERNEL_SOURCE)/arch/arm64/configs/$(VARIANT_DEFCONFIG)
+echo -e "\nCONFIG_SAMSUNG_PRODUCT_SHIP=y" >> $(TARGET_KERNEL_SOURCE)/arch/arm64/configs/$(VARIANT_DEFCONFIG)
 endef
 
 define modi-shipdefconfig
-chmod 664 kernel/arch/arm/configs/$(VARIANT_DEFCONFIG)
-echo -e "\nCONFIG_SAMSUNG_PRODUCT_SHIP=y" >> kernel/arch/arm/configs/$(VARIANT_DEFCONFIG)
+chmod 664 $(TARGET_KERNEL_SOURCE)/arch/arm/configs/$(VARIANT_DEFCONFIG)
+echo -e "\nCONFIG_SAMSUNG_PRODUCT_SHIP=y" >> $(TARGET_KERNEL_SOURCE)/arch/arm/configs/$(VARIANT_DEFCONFIG)
 endef
 
 $(KERNEL_OUT):

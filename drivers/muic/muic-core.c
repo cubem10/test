@@ -163,6 +163,7 @@ static int muic_earjackkey_intent(int state)
 }
 #endif
 
+#if defined (CONFIG_MUIC_DOCK_NOTIFIER)
 static int muic_dock_attach_notify(int type, const char *name)
 {
 	printk(KERN_DEBUG "[muic] %s: %s\n", __func__, name);
@@ -178,6 +179,7 @@ static int muic_dock_detach_notify(void)
 
 	return NOTIFY_OK;
 }
+#endif /* CONFIG_MUIC_DOCK_NOTIFIER */
 
 /* Notice:
   * Define your own wake-up Noti. function to use 619K
@@ -191,6 +193,7 @@ static void __muic_set_wakeup_noti(int flag)
 void muic_set_wakeup_noti(int flag)
 	__attribute__((weak, alias("__muic_set_wakeup_noti")));
 
+#if defined (CONFIG_MUIC_DOCK_NOTIFIER)
 static int muic_handle_dock_notification(struct notifier_block *nb,
 			unsigned long action, void *data)
 {
@@ -333,6 +336,7 @@ static int muic_handle_dock_notification(struct notifier_block *nb,
 	printk(KERN_DEBUG "[muic] %s: ignore(%d)\n", __func__, attached_dev);
 	return NOTIFY_DONE;
 }
+#endif /* CONFIG_MUIC_DOCK_NOTIFIER */
 #endif /* CONFIG_MUIC_NOTIFIER */
 
 #if defined(CONFIG_USE_SAFEOUT)
@@ -441,8 +445,10 @@ static void muic_init_switch_dev_cb(void)
 #endif /* CONFIG_SWITCH */
 
 #if defined(CONFIG_MUIC_NOTIFIER)
+#if defined (CONFIG_MUIC_DOCK_NOTIFIER)
 	muic_notifier_register(&dock_notifier_block,
 			muic_handle_dock_notification, MUIC_NOTIFY_DEV_DOCK);
+#endif /*CONFIG_MUIC_DOCK_NOTIFIER*/
 #endif /* CONFIG_MUIC_NOTIFIER */
 
 	printk(KERN_DEBUG "[muic] %s: done\n", __func__);

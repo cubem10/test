@@ -58,6 +58,7 @@ static enum power_supply_property sm5703_fuelgauge_props[] = {
 	POWER_SUPPLY_PROP_ENERGY_FULL,
 	POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN,
 	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
+	POWER_SUPPLY_PROP_CHARGE_COUNTER,
 };
 
 static inline int sm5703_fg_read_device(struct i2c_client *client,
@@ -683,6 +684,22 @@ void fg_abnormal_reset_check(struct i2c_client *client)
 	}
 }
 
+bool sm5703_check_active_mode(struct i2c_client *client)
+{
+	int vds, comp_curr;
+	struct sec_fuelgauge_info *fuelgauge = i2c_get_clientdata(client);
+
+	vds = sm5703_fg_i2c_read_word(client, 0x84);
+	comp_curr = (fuelgauge->info.batt_current<<8)/125;
+
+	if((abs(comp_curr)*3/5) < (vds&0x7FFF))
+	{
+		pr_info("%s: active mode enable, vds : 0x%x, comp_curr : 0x%x\n", __func__, vds, comp_curr);
+		return true;
+	}
+	return false;
+}
+
 void fg_vbatocv_check(struct i2c_client *client, int ta_exist)
 {
 	int ret;
@@ -727,9 +744,9 @@ void fg_vbatocv_check(struct i2c_client *client, int ta_exist)
 		}
 	} else {
 		if ((fuelgauge->info.temperature/10) > 15) {
-			if ((fuelgauge->info.p_batt_voltage < fuelgauge->info.n_tem_poff) &&
+			if (((fuelgauge->info.p_batt_voltage < fuelgauge->info.n_tem_poff) &&
 				(fuelgauge->info.batt_voltage < fuelgauge->info.n_tem_poff) &&
-				(!ta_exist)) {
+				(!ta_exist)) || sm5703_check_active_mode(client)) {
 				dev_info(&client->dev, "%s: mode change to normal tem mix RS manual mode\n", __func__);
 				/* mode change to mix RS manual mode */
 				/* RS manual value write */
@@ -768,9 +785,9 @@ void fg_vbatocv_check(struct i2c_client *client, int ta_exist)
 				sm5703_fg_i2c_write_word(client, SM5703_REG_CNTL, ret);
 			}
 		} else {
-			if ((fuelgauge->info.p_batt_voltage < fuelgauge->info.l_tem_poff) &&
+			if (((fuelgauge->info.p_batt_voltage < fuelgauge->info.l_tem_poff) &&
 				(fuelgauge->info.batt_voltage < fuelgauge->info.l_tem_poff) &&
-				(!ta_exist)) {
+				(!ta_exist)) || sm5703_check_active_mode(client)){
 					dev_info(&client->dev, "%s: mode change to normal tem mix RS manual mode\n",
 						__func__);
 					/* mode change to mix RS manual mode */
@@ -1672,6 +1689,9 @@ bool sec_hal_fg_get_property(struct i2c_client *client,
 			/* SM5703 does not support this property */
 			val->intval = sm5703_fg_get_batt_present(client);
 			break;
+		case POWER_SUPPLY_PROP_CHARGE_COUNTER:
+		    	val->intval = fuelgauge->capacity_full * fuelgauge->raw_capacity;
+		    	break;
 		case POWER_SUPPLY_PROP_INPUT_VOLTAGE_REGULATION:
 			val->intval =
 				sm5703_fg_get_jig_mode_real_vbat(fuelgauge->client);
@@ -1753,6 +1773,8 @@ static int sm5703_fg_get_property(struct power_supply *psy,
 			if (val->intval < 0)
 				val->intval = 0;
 
+	        	fuelgauge->raw_capacity = val->intval;
+ 
 			/* get only integer part */
 			val->intval /= 10;
 
@@ -2144,6 +2166,11 @@ static int fuelgauge_parse_dt(struct device *dev,
 			__func__, fuelgauge->pdata->capacity_min);
 		if (ret < 0)
 			pr_err("%s error reading capacity_min %d\n", __func__, ret);
+		
+		ret = of_property_read_u32(np, "fuelgauge,capacity_full",
+				&fuelgauge->capacity_full);
+		if (ret < 0)
+			pr_err("%s error reading capacity_full %d\n", __func__, ret);
 
 		ret = of_property_read_u32(np, "fuelgauge,capacity_calculation_type",
 				&pdata->capacity_calculation_type);
@@ -2380,6 +2407,12 @@ static int sm5703_fuelgauge_resume(struct device *dev)
 
 static void sm5703_fuelgauge_shutdown(struct i2c_client *client)
 {
+	int cntl1, cntl2;
+
+	cntl1 = sm5703_fg_i2c_read_word(client, SM5703_REG_CNTL);
+	cntl2 = (cntl1 | ENABLE_MIX_MODE) & ~ENABLE_RS_MAN_MODE; //mix RS auto mode
+	sm5703_fg_i2c_write_word(client, SM5703_REG_CNTL, cntl2);
+	pr_info("%s: SM5703_REG_CNTL = <0x%x> -> <0x%x> \n", __func__, cntl1, cntl2);
 }
 
 static const struct i2c_device_id sm5703_fuelgauge_id[] = {

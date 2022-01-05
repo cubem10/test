@@ -12,7 +12,7 @@
                 edit "CROSS_COMPILE" to right toolchain path(You downloaded).
                         EX)  CROSS_COMPILE=<android platform directory you download>/android/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-
                         Ex)  CROSS_COMPILE=/usr/local/toolchain/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android- // check the location of toolchain
-        - to Build (You may use different defconfig files depending on carrier, SKT, KT, or LGT)
+        - to Build // choose defconfig file for your model among skt, kt, and lgt
                 $ export ARCH=arm
                 $ make -C $(pwd) O=$(pwd)/out KCFLAGS=-mno-android gta2slte_kor_skt_defconfig
                 $ make -C $(pwd) O=$(pwd)/out KCFLAGS=-mno-android

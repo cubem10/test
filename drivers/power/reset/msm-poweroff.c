@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -334,6 +334,16 @@ static void msm_restart_prepare(const char *cmd)
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_KEYS_CLEAR);
 			__raw_writel(0x7766550a, restart_reason);
+		} else if (!strncmp(cmd, "cross_fail", 10)) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_CROSS_FAIL);
+			__raw_writel(0x7766550c, restart_reason);
+#ifdef CONFIG_SEC_PERIPHERAL_SECURE_CHK
+		} else if (!strcmp(cmd, "peripheral_hw_reset")) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_SECURE_CHECK_FAIL);
+			__raw_writel(0x77665507, restart_reason);
+#endif				
 		} else if (!strncmp(cmd, "oem-", 4)) {
 			unsigned long code;
 			int ret;

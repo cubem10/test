@@ -109,11 +109,12 @@ int isl98608_panel_power(struct mdss_dsi_ctrl_pdata *ctrl, int enable)
 		panel_power_i2c_write(info->client, 0x09, 0x08, 1); /* VP 5.8V*/
 
 		gpio_set_value(info->pdata->gpio_en, 1);
-		usleep_range(1000, 1000);
+		usleep_range(3000, 3000);
 
 	} else {
+		usleep_range(3000, 3000);
 		gpio_set_value(info->pdata->gpio_en, 0);
-		usleep_range(1000, 1000);
+		usleep_range(5000, 5000);
 	}
 	LCD_INFO(" enable : %d \n", enable);
 

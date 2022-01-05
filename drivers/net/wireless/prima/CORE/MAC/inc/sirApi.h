@@ -92,6 +92,10 @@ typedef struct sAniSirGlobal *tpAniSirGlobal;
 #define SIR_MAX_24G_5G_CHANNEL_RANGE      166
 #define SIR_BCN_REPORT_MAX_BSS_DESC       4
 
+/*
+ * RSSI diff threshold to fix rssi and channel in beacon for the cases where
+ * DS params and HT info is not present.
+ */
 #define SIR_ADJACENT_CHANNEL_RSSI_DIFF_THRESHOLD 15
 
 #ifdef FEATURE_WLAN_BATCH_SCAN
@@ -548,7 +552,8 @@ typedef struct sSirSmeReadyReq
 {
     tANI_U16   messageType; // eWNI_SME_SYS_READY_IND
     tANI_U16   length;
-    tANI_U16   transactionId;     
+    tANI_U16   transactionId;
+    void *sme_msg_cb;
 } tSirSmeReadyReq, *tpSirSmeReadyReq;
 
 /// Definition for response message to previously issued start request
@@ -1130,8 +1135,13 @@ typedef struct sSirSmeJoinReq
     tSirMacPowerCapInfo powerCap;
     tSirSupChnl         supportedChannels;
     bool force_24ghz_in_ht20;
+    bool force_rsne_override;
     tSirBssDescription  bssDescription;
-
+    /*
+     * WARNING: Pls make bssDescription as last variable in struct
+     * tSirSmeJoinReq as it has ieFields followed after this bss
+     * description. Adding a variable after this corrupts the ieFields
+     */
 } tSirSmeJoinReq, *tpSirSmeJoinReq;
 
 /// Definition for reponse message to previously issued join request

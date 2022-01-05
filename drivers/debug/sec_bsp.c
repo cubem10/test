@@ -25,6 +25,7 @@
 #include <linux/device.h>
 #include <linux/sec_class.h>
 #include <soc/qcom/boot_stats.h>
+#include <linux/slab.h>
 
 #include <linux/sec_bsp.h>
 
@@ -33,6 +34,7 @@
 #define BOOT_EVT_PREFIX_PLATFORM	": "
 #define BOOT_EVT_PREFIX_RIL		"_SVC : "
 #define BOOT_EVT_PREFIX_DEBUG		"_DEBUG: "
+#define BOOT_EVT_PREFIX_SYSTEMSERVER		"_SystemServer: "
 
 #define DEFAULT_BOOT_STAT_FREQ		32768
 
@@ -43,12 +45,18 @@ uint32_t bootloader_load_kernel;
 
 static bool console_enabled;
 static unsigned int __is_boot_recovery;
+static unsigned int __is_boot_lpm;
+#ifdef CONFIG_SEC_DEBUG_PWDT
+static unsigned int __is_verifiedboot_state;
+#endif
+static bool bootcompleted=false;
 
 static const char *boot_prefix[16] = {
 	BOOT_EVT_PREFIX_LK,
 	BOOT_EVT_PREFIX BOOT_EVT_PREFIX_PLATFORM,
 	BOOT_EVT_PREFIX BOOT_EVT_PREFIX_RIL,
-	BOOT_EVT_PREFIX BOOT_EVT_PREFIX_DEBUG
+	BOOT_EVT_PREFIX BOOT_EVT_PREFIX_DEBUG,
+	BOOT_EVT_PREFIX BOOT_EVT_PREFIX_SYSTEMSERVER
 };
 
 enum boot_events_prefix {
@@ -56,6 +64,7 @@ enum boot_events_prefix {
 	EVT_PLATFORM,
 	EVT_RIL,
 	EVT_DEBUG,
+	EVT_SYSTEMSERVER,
 	EVT_INVALID,
 };
 
@@ -73,6 +82,8 @@ enum boot_events_type {
 	PLATFORM_PERFORMENABLESCREEN,
 	PLATFORM_ENABLE_SCREEN,
 	PLATFORM_BOOT_COMPLETE,
+	PLATFORM_FINISH_USER_UNLOCKED_COMPLETED,
+	PLATFORM_SET_ICON_VISIBILITY,
 	PLATFORM_VOICE_SVC,
 	PLATFORM_DATA_SVC,
 	PLATFORM_START_NETWORK,
@@ -123,6 +134,10 @@ static struct boot_event boot_events[] = {
 			"Enabling Screen!", 0},
 	{PLATFORM_BOOT_COMPLETE, EVT_PLATFORM,
 			"bootcomplete", 0},
+	{PLATFORM_FINISH_USER_UNLOCKED_COMPLETED, EVT_DEBUG,
+			"finishUserUnlockedCompleted", 0},
+	{PLATFORM_SET_ICON_VISIBILITY, EVT_PLATFORM,
+			"setIconVisibility: ims_volte: [SHOW]", 0},
 	{PLATFORM_VOICE_SVC, EVT_PLATFORM,
 			"Voice SVC is acquired", 0},
 	{PLATFORM_DATA_SVC, EVT_PLATFORM,
@@ -148,6 +163,8 @@ static struct boot_event boot_events[] = {
 	{0, EVT_INVALID, NULL, 0},
 };
 
+LIST_HEAD(systemserver_init_time_list);
+
 static int __init boot_recovery(char *str)
 {
 	int temp = 0;
@@ -167,6 +184,47 @@ unsigned int is_boot_recovery(void)
 }
 EXPORT_SYMBOL(is_boot_recovery);
 
+static int lpm_check(char *str)
+{
+	if (strncmp(str, "charger", 7) == 0)
+		__is_boot_lpm = 1;
+	else
+		__is_boot_lpm = 0;
+
+	return __is_boot_lpm;
+}
+early_param("androidboot.mode", lpm_check);
+
+unsigned int is_boot_lpm(void)
+{
+	return __is_boot_lpm;
+}
+EXPORT_SYMBOL(is_boot_lpm);
+
+#ifdef CONFIG_SEC_DEBUG_PWDT
+static int  verifiedboot_state_param(char *str)
+{
+	static const char unlocked[] = "orange";
+
+	if (!str)
+		return -EINVAL;
+
+	if (strncmp(str, unlocked, sizeof(unlocked)) == 0)
+		__is_verifiedboot_state = 1;
+	else
+		__is_verifiedboot_state = 0;
+
+	return __is_verifiedboot_state;
+}
+early_param("androidboot.verifiedbootstate", verifiedboot_state_param);
+
+unsigned int is_verifiedboot_state(void)
+{
+	return __is_verifiedboot_state;
+}
+EXPORT_SYMBOL(is_verifiedboot_state);
+#endif
+
 static int sec_boot_stat_proc_show(struct seq_file *m, void *v)
 {
 	size_t i;
@@ -174,6 +232,7 @@ static int sec_boot_stat_proc_show(struct seq_file *m, void *v)
 	unsigned long freq = (unsigned long)get_boot_stat_freq();
 	unsigned long time, prev_time = 0;
 	char boot_string[256];
+	struct systemserver_init_time_entry *systemserver_entry;
 
 	if (!freq)
 		freq = DEFAULT_BOOT_STAT_FREQ;
@@ -213,6 +272,12 @@ static int sec_boot_stat_proc_show(struct seq_file *m, void *v)
 				boot_string, 0, 0, 0, 0);
 	}
 
+	seq_puts(m, "------------------------------------------");
+	seq_puts(m, "-----------------------------------------\n");
+	seq_puts(m, "SystemServer services that took long time\n\n");
+	list_for_each_entry (systemserver_entry, &systemserver_init_time_list, next)
+		seq_printf(m, "%s\n",systemserver_entry->buf);
+
 	return 0;
 }
 
@@ -227,6 +292,17 @@ static const struct file_operations sec_boot_stat_proc_fops = {
 	.llseek  = seq_lseek,
 	.release = single_release,
 };
+
+void sec_boot_stat_record_systemserver(const char *c)
+{
+	struct systemserver_init_time_entry *entry;
+	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
+	if (!entry)
+		return;
+	strncpy(entry->buf,c,MAX_LENGTH_OF_SYSTEMSERVER_LOG);
+	entry->buf[MAX_LENGTH_OF_SYSTEMSERVER_LOG-1] = 0;
+	list_add(&entry->next, &systemserver_init_time_list);
+}
 
 void sec_boot_stat_record(int idx, int time)
 {
@@ -247,12 +323,20 @@ void sec_boot_stat_add(const char *c)
 	if (!strncmp(android_log, BOOT_EVT_PREFIX_PLATFORM, 2)) {
 		prefix = EVT_PLATFORM;
 		android_log = (char *)(android_log + 2);
+		if (!strncmp(android_log, "bootcomplete", 12))
+			bootcompleted=true;
 	} else if (!strncmp(android_log, BOOT_EVT_PREFIX_RIL, 7)) {
 		prefix = EVT_RIL;
 		android_log = (char *)(android_log + 7);
 	} else if (!strncmp(android_log, BOOT_EVT_PREFIX_DEBUG, 8)) {
 		prefix = EVT_DEBUG;
 		android_log = (char *)(android_log + 8);
+	} else if (!strncmp(android_log, BOOT_EVT_PREFIX_SYSTEMSERVER, 15)) {
+		prefix = EVT_SYSTEMSERVER;
+		android_log = (char *)(android_log + 15);
+		if (bootcompleted==false)
+			sec_boot_stat_record_systemserver(android_log);
+		return;
 	} else
 		return;
 

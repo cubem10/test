@@ -116,6 +116,7 @@ limProcessDisassocFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession
             return;
     }
 
+
 #ifdef WLAN_FEATURE_11W
     /* PMF: If this session is a PMF session, then ensure that this frame was protected */
     if(psessionEntry->limRmfEnabled  && (WDA_GET_RX_DPU_FEEDBACK(pRxPacketInfo) & DPU_FEEDBACK_UNPROTECTED_ERROR))
@@ -201,6 +202,14 @@ limProcessDisassocFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession
             return;
         }
     }
+
+	if ((psessionEntry->limSystemRole == eLIM_STA_ROLE) &&
+		psessionEntry->limMlmState == eLIM_MLM_WT_ADD_STA_RSP_STATE) {
+		PELOGE(limLog(pMac, LOGE, FL("received Disassoc from the AP in"
+			"add sta response state, disconnecting"));)
+			psessionEntry->fDeauthReceived = true;
+		return;
+	}
 
     if ( (psessionEntry->limSystemRole == eLIM_AP_ROLE) ||
          (psessionEntry->limSystemRole == eLIM_BT_AMP_AP_ROLE) )

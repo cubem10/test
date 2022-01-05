@@ -45,9 +45,9 @@ char mdnie_app_name[][NAME_STRING_MAX] = {
 	"VIDEO_WARM_APP",
 	"VIDEO_COLD_APP",
 	"CAMERA_APP",
-	"NAVI_APP",
+	"CANERA_SWA_APP",
 	"GALLERY_APP",
-	"VT_APP",
+	"GALLERY_SWA_APP",
 	"BROWSER_APP",
 	"eBOOK_APP",
 	"EMAIL_APP",
@@ -168,18 +168,30 @@ int update_dsi_tcon_mdnie_register(struct samsung_display_driver_data *vdd)
 	struct dsi_cmd_desc *tune_data_dsi0 = NULL;
 	struct dsi_cmd_desc *tune_data_dsi1 = NULL;
 	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
+	struct mdss_panel_info *pinfo = NULL;
+	enum BYPASS temp_bypass = BYPASS_ENABLE;
 	
 	if (vdd == NULL || !vdd->support_mdnie_lite)
 		return 0;
 
-	ctrl = samsung_get_dsi_ctrl(vdd);
 	
 	if(vdd->mfd_dsi[DISPLAY_1]->panel_info->cont_splash_enabled ||
-		vdd->mfd_dsi[DISPLAY_1]->panel_info->blank_state == MDSS_PANEL_BLANK_BLANK ||
-		!(ctrl->ctrl_state & CTRL_STATE_MDP_ACTIVE)) {
+		vdd->mfd_dsi[DISPLAY_1]->panel_info->blank_state == MDSS_PANEL_BLANK_BLANK) {
 		LCD_ERR("do not send mdnie data (%d) (%d)\n",
 			vdd->mfd_dsi[DISPLAY_1]->panel_info->cont_splash_enabled,
 			vdd->mfd_dsi[DISPLAY_1]->panel_info->blank_state);
+		return 0;
+	}
+
+	ctrl = samsung_get_dsi_ctrl(vdd);
+	if (IS_ERR_OR_NULL(ctrl)) {
+		LCD_ERR("ctrl is null..\n");
+		return 0;
+	}
+
+	pinfo = &(ctrl->panel_data.panel_info);
+	if (IS_ERR_OR_NULL(pinfo)) {
+		LCD_ERR("pinfo is null..\n");
 		return 0;
 	}
 
@@ -193,11 +205,32 @@ int update_dsi_tcon_mdnie_register(struct samsung_display_driver_data *vdd)
 		else
 			mdnie_tune_state->hbm_enable = false;
 
+		if(mdnie_tune_state->mdnie_bypass == BYPASS_DISABLE) {
+			if (pinfo->blank_state == MDSS_PANEL_BLANK_LOW_POWER) {
+				if (mdnie_tune_state->mdnie_accessibility == CURTAIN) {
+					temp_bypass = BYPASS_DISABLE;
+				}
+				else if((mdnie_tune_state->mdnie_accessibility == NEGATIVE) || (mdnie_tune_state->mdnie_accessibility == GRAYSCALE_NEGATIVE) || (mdnie_tune_state->color_lens_enable == true)){
+					temp_bypass = BYPASS_ENABLE;
+				}
+				else if ((mdnie_tune_state->mdnie_accessibility == COLOR_BLIND || mdnie_tune_state->mdnie_accessibility == COLOR_BLIND_HBM) ||
+					(mdnie_tune_state->mdnie_accessibility == GRAYSCALE) || (mdnie_tune_state->night_mode_enable == true) || (mdnie_tune_state->ldu_mode_index != 0)) {
+					temp_bypass = BYPASS_DISABLE;
+				}
+				else {
+					temp_bypass = BYPASS_ENABLE;
+				}
+			}
+			else {
+				temp_bypass = BYPASS_DISABLE;
+			}
+		}
+
 		/*
 		* mDnie priority
 		* Accessibility > HBM > Screen Mode
 		*/
-		if (mdnie_tune_state->mdnie_bypass == BYPASS_ENABLE) {
+		if (temp_bypass == BYPASS_ENABLE) {
 			if (mdnie_tune_state->index == DSI_CTRL_0)
 				tune_data_dsi0 = mdnie_data.DSI0_BYPASS_MDNIE;
 			else
@@ -359,7 +392,7 @@ static ssize_t mode_show(struct device *dev,
 static ssize_t mode_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
-	int value;
+	int value = 0;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 	struct samsung_display_driver_data *vdd = NULL;
 
@@ -374,8 +407,6 @@ static ssize_t mode_store(struct device *dev,
 	list_for_each_entry_reverse(mdnie_tune_state, &mdnie_list, used_list) {
 		if (!vdd)
 			vdd = mdnie_tune_state->vdd;
-		if (vdd->dtsi_data[0].tft_common_support && value >= NATURAL_MODE)
-			value++;
 
 		mdnie_tune_state->mdnie_mode = value;
 
@@ -433,7 +464,7 @@ static ssize_t scenario_store(struct device *dev,
 					  struct device_attribute *attr,
 					  const char *buf, size_t size)
 {
-	int value;
+	int value = 0;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 	struct samsung_display_driver_data *vdd = NULL;
 
@@ -481,7 +512,7 @@ static ssize_t outdoor_store(struct device *dev,
 					       struct device_attribute *attr,
 					       const char *buf, size_t size)
 {
-	int value;
+	int value = 0;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 	struct samsung_display_driver_data *vdd = NULL;
 
@@ -529,7 +560,7 @@ static ssize_t bypass_store(struct device *dev,
 					  const char *buf, size_t size)
 {
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
-	int value;
+	int value = 0;
 	struct samsung_display_driver_data *vdd = NULL;
 
 	sscanf(buf, "%d", &value);
@@ -581,7 +612,7 @@ static ssize_t accessibility_store(struct device *dev,
 			const char *buf, size_t size)
 {
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
-	int cmd_value;
+	int cmd_value = 0;
 	char buffer[MDNIE_COLOR_BLINDE_HBM_CMD_SIZE] = {0,};
 	int buffer2[MDNIE_COLOR_BLINDE_HBM_CMD_SIZE/2] = {0,};
 	int loop;
@@ -671,7 +702,7 @@ static ssize_t sensorRGB_show(struct device *dev,
 static ssize_t sensorRGB_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
-	int white_red, white_green, white_blue;
+	int white_red = 0, white_green = 0, white_blue = 0;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 	struct mdnie_lite_tun_type *real_mdnie_tune_state = NULL;
 	struct dsi_cmd_desc *data_dsi0 = NULL;
@@ -742,6 +773,8 @@ static ssize_t sensorRGB_store(struct device *dev,
 	return size;
 }
 
+#ifdef CONFIG_SUPPORT_WHITERGB
+
 static ssize_t whiteRGB_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -764,7 +797,7 @@ static ssize_t whiteRGB_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
 	int i;
-	int white_red, white_green, white_blue;
+	int white_red = 0, white_green = 0, white_blue = 0;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 	struct mdnie_lite_tun_type *real_mdnie_tune_state = NULL;
 	struct dsi_cmd_desc *white_tunning_data = NULL;
@@ -795,6 +828,11 @@ static ssize_t whiteRGB_store(struct device *dev,
 							white_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] = (char)(mdnie_data.dsi0_white_ldu_r + white_red);
 							white_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] = (char)(mdnie_data.dsi0_white_ldu_g + white_green);
 							white_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] = (char)(mdnie_data.dsi0_white_ldu_b + white_blue);
+							if((i == CAMERA_SWA_APP) || (i == GALLERY_SWA_APP)) {
+								white_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] += mdnie_data.dsi0_white_swa_r;
+								white_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] += mdnie_data.dsi0_white_swa_g;
+								white_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] += mdnie_data.dsi0_white_swa_b;
+							}
 							mdnie_tune_state->scr_white_balanced_red = white_red;
 							mdnie_tune_state->scr_white_balanced_green = white_green;
 							mdnie_tune_state->scr_white_balanced_blue = white_blue;
@@ -815,6 +853,11 @@ static ssize_t whiteRGB_store(struct device *dev,
 							white_tunning_data[mdnie_data.dsi1_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] = (char)(mdnie_data.dsi1_white_ldu_r + white_red);
 							white_tunning_data[mdnie_data.dsi1_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] = (char)(mdnie_data.dsi1_white_ldu_g + white_green);
 							white_tunning_data[mdnie_data.dsi1_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] = (char)(mdnie_data.dsi1_white_ldu_b + white_blue);
+							if((i == CAMERA_SWA_APP) || (i == GALLERY_SWA_APP)) {
+								white_tunning_data[mdnie_data.dsi1_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] += mdnie_data.dsi1_white_swa_r;
+								white_tunning_data[mdnie_data.dsi1_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] += mdnie_data.dsi1_white_swa_g;
+								white_tunning_data[mdnie_data.dsi1_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] += mdnie_data.dsi1_white_swa_b;
+							}
 							mdnie_tune_state->scr_white_balanced_red = white_red;
 							mdnie_tune_state->scr_white_balanced_green = white_green;
 							mdnie_tune_state->scr_white_balanced_blue = white_blue;
@@ -831,6 +874,8 @@ static ssize_t whiteRGB_store(struct device *dev,
 	return size;
 }
 
+#endif
+
 static ssize_t mdnie_ldu_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -846,7 +891,7 @@ static ssize_t mdnie_ldu_show(struct device *dev,
 static ssize_t mdnie_ldu_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
-	int i, j, idx;
+	int i, j, idx = 0;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 	struct mdnie_lite_tun_type *real_mdnie_tune_state = NULL;
 	struct dsi_cmd_desc *ldu_tunning_data = NULL;
@@ -874,6 +919,14 @@ static ssize_t mdnie_ldu_store(struct device *dev,
 									= mdnie_data.dsi0_adjust_ldu_table[j][idx * 3 + 1] + mdnie_tune_state->scr_white_balanced_green;
 								ldu_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] 
 									= mdnie_data.dsi0_adjust_ldu_table[j][idx * 3 + 2] + mdnie_tune_state->scr_white_balanced_blue;
+								if(j == AUTO_MODE && ((i == CAMERA_SWA_APP) || (i == GALLERY_SWA_APP))) {
+									ldu_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] +=
+										mdnie_data.dsi0_white_swa_r;
+									ldu_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] +=
+										mdnie_data.dsi0_white_swa_g;
+									ldu_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] +=
+										mdnie_data.dsi0_white_swa_b;
+								}
 								mdnie_data.dsi0_white_ldu_r = mdnie_data.dsi0_adjust_ldu_table[j][idx * 3 + 0];
 								mdnie_data.dsi0_white_ldu_g = mdnie_data.dsi0_adjust_ldu_table[j][idx * 3 + 1];
 								mdnie_data.dsi0_white_ldu_b = mdnie_data.dsi0_adjust_ldu_table[j][idx * 3 + 2];
@@ -902,6 +955,14 @@ static ssize_t mdnie_ldu_store(struct device *dev,
 									= mdnie_data.dsi1_adjust_ldu_table[j][idx * 3 + 1] + mdnie_tune_state->scr_white_balanced_green;
 								ldu_tunning_data[mdnie_data.dsi1_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] 
 									= mdnie_data.dsi1_adjust_ldu_table[j][idx * 3 + 2] + mdnie_tune_state->scr_white_balanced_blue;
+								if(j == AUTO_MODE && ((i == CAMERA_SWA_APP) || (i == GALLERY_SWA_APP))) {
+									ldu_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] +=
+										mdnie_data.dsi1_white_swa_r;
+									ldu_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] +=
+										mdnie_data.dsi1_white_swa_g;
+									ldu_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] +=
+										mdnie_data.dsi1_white_swa_b;
+								}
 								mdnie_data.dsi1_white_ldu_r = mdnie_data.dsi1_adjust_ldu_table[j][idx * 3 + 0];
 								mdnie_data.dsi1_white_ldu_g = mdnie_data.dsi1_adjust_ldu_table[j][idx * 3 + 1];
 								mdnie_data.dsi1_white_ldu_b = mdnie_data.dsi1_adjust_ldu_table[j][idx * 3 + 2];
@@ -938,7 +999,7 @@ static ssize_t night_mode_show(struct device *dev,
 static ssize_t night_mode_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
-	int enable, idx;
+	int enable = 0, idx = 0;
 	char *buffer;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 	struct mdnie_lite_tun_type *real_mdnie_tune_state = NULL;
@@ -1000,7 +1061,7 @@ static ssize_t color_lens_show(struct device *dev,
 static ssize_t color_lens_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
-	int enable, color, level;
+	int enable = 0, color = 0, level = 0;
 	char *buffer;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 	struct mdnie_lite_tun_type *real_mdnie_tune_state = NULL;
@@ -1071,7 +1132,7 @@ static ssize_t hdr_store(struct device *dev,
 					  struct device_attribute *attr,
 					  const char *buf, size_t size)
 {
-	int value;
+	int value = 0;
 	int backup;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 	struct samsung_display_driver_data *vdd = NULL;
@@ -1120,7 +1181,7 @@ static ssize_t light_notification_store(struct device *dev,
 					  struct device_attribute *attr,
 					  const char *buf, size_t size)
 {
-	int value;
+	int value = 0;
 	int backup;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 	struct samsung_display_driver_data *vdd = NULL;
@@ -1170,7 +1231,7 @@ static ssize_t cabc_store(struct device *dev,
 					  const char *buf, size_t size)
 {
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
-	int value;
+	int value = 0;
 
 	sscanf(buf, "%d", &value);
 
@@ -1205,7 +1266,7 @@ static ssize_t hmt_color_temperature_store(struct device *dev,
 					  struct device_attribute *attr,
 					  const char *buf, size_t size)
 {
-	int value;
+	int value = 0;
 	int backup;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 	struct samsung_display_driver_data *vdd = NULL;
@@ -1244,7 +1305,9 @@ static DEVICE_ATTR(outdoor, 0664, outdoor_show, outdoor_store);
 static DEVICE_ATTR(bypass, 0664, bypass_show, bypass_store);
 static DEVICE_ATTR(accessibility, 0664, accessibility_show, accessibility_store);
 static DEVICE_ATTR(sensorRGB, 0664, sensorRGB_show, sensorRGB_store);
+#ifdef CONFIG_SUPPORT_WHITERGB
 static DEVICE_ATTR(whiteRGB, 0664, whiteRGB_show, whiteRGB_store);
+#endif
 static DEVICE_ATTR(mdnie_ldu, 0664, mdnie_ldu_show, mdnie_ldu_store);
 static DEVICE_ATTR(night_mode, 0664, night_mode_show, night_mode_store);
 static DEVICE_ATTR(color_lens, 0664, color_lens_show, color_lens_store);
@@ -1345,10 +1408,12 @@ void create_tcon_mdnie_node(void)
 		DPRINT("Failed to create device file(%s)!=n",
 			dev_attr_sensorRGB.attr.name);
 
+#ifdef CONFIG_SUPPORT_WHITERGB
 	if (device_create_file
 		(tune_mdnie_dev, &dev_attr_whiteRGB) < 0)
 		DPRINT("Failed to create device file(%s)!=n",
 			dev_attr_whiteRGB.attr.name);
+#endif
 
 	if (device_create_file
 		(tune_mdnie_dev, &dev_attr_mdnie_ldu) < 0)
@@ -1553,6 +1618,15 @@ void coordinate_tunning_calculate(int index, int x, int y, char (*coordinate_dat
 					coordinate_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] = (char)g;
 					coordinate_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] = (char)b;
 
+					if(j == AUTO_MODE && ((i == CAMERA_SWA_APP) || (i == GALLERY_SWA_APP))) {
+						coordinate_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] +=
+							mdnie_data.dsi0_white_swa_r;
+						coordinate_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] +=
+							mdnie_data.dsi0_white_swa_g;
+						coordinate_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] +=
+							mdnie_data.dsi0_white_swa_b;
+					}
+
 					if ((i == UI_APP) && (j == AUTO_MODE)) {
 						mdnie_data.dsi0_white_default_r = (char)r;
 						mdnie_data.dsi0_white_default_g = (char)g;
@@ -1594,6 +1668,15 @@ void coordinate_tunning_calculate(int index, int x, int y, char (*coordinate_dat
 					coordinate_tunning_data[mdnie_data.dsi1_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] = (char)g;
 					coordinate_tunning_data[mdnie_data.dsi1_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] = (char)b;
 
+					if(j == AUTO_MODE && ((i == CAMERA_SWA_APP) || (i == GALLERY_SWA_APP))) {
+						coordinate_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] +=
+							mdnie_data.dsi1_white_swa_r;
+						coordinate_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] +=
+							mdnie_data.dsi1_white_swa_g;
+						coordinate_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] +=
+							mdnie_data.dsi1_white_swa_b;
+					}
+
 					if ((i == UI_APP) && (j == AUTO_MODE)) {
 						mdnie_data.dsi1_white_default_r = (char)r;
 						mdnie_data.dsi1_white_default_g = (char)g;
@@ -1625,6 +1708,16 @@ void coordinate_tunning(int index, char *coordinate_data, int scr_wr_addr, int d
 							coordinate_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] = coordinate_data[2];
 							coordinate_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] = coordinate_data[4];
 						}
+
+						if(j == AUTO_MODE && ((i == CAMERA_SWA_APP) || (i == GALLERY_SWA_APP))) {
+							coordinate_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] +=
+								mdnie_data.dsi0_white_swa_r;
+							coordinate_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] +=
+								mdnie_data.dsi0_white_swa_g;
+							coordinate_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] +=
+								mdnie_data.dsi0_white_swa_b;
+						}
+
 						if ((i == UI_APP) && (j == AUTO_MODE)) {
 							mdnie_data.dsi0_white_default_r = coordinate_data[0];
 							mdnie_data.dsi0_white_default_g = coordinate_data[2];
@@ -1648,6 +1741,16 @@ void coordinate_tunning(int index, char *coordinate_data, int scr_wr_addr, int d
 							coordinate_tunning_data[mdnie_data.dsi1_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] = coordinate_data[2];
 							coordinate_tunning_data[mdnie_data.dsi1_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] = coordinate_data[4];
 						}
+
+						if(j == AUTO_MODE && ((i == CAMERA_SWA_APP) || (i == GALLERY_SWA_APP))) {
+							coordinate_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] +=
+								mdnie_data.dsi1_white_swa_r;
+							coordinate_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] +=
+								mdnie_data.dsi1_white_swa_g;
+							coordinate_tunning_data[mdnie_data.dsi0_scr_step_index].payload[mdnie_data.address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] +=
+								mdnie_data.dsi1_white_swa_b;
+						}
+
 						if ((i == UI_APP) && (j == AUTO_MODE)) {
 							mdnie_data.dsi1_white_default_r = coordinate_data[0];
 							mdnie_data.dsi1_white_default_g = coordinate_data[2];

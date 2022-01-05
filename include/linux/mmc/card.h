@@ -21,8 +21,8 @@
 #define MAX_CNT_U32     0x7FFFFFFF
 #define STATUS_MASK     (R1_ERROR | R1_CC_ERROR | R1_CARD_ECC_FAILED | R1_WP_VIOLATION | R1_OUT_OF_RANGE)
 #define HALT_UNHALT_ERR		0x00000001
-#define CQ_EN_DIS_ERR		0x00000010
-#define RPMB_SWITCH_ERR		0x00000100
+#define CQ_EN_DIS_ERR		0x00000002
+#define RPMB_SWITCH_ERR		0x00000004
 #define CQERR_MASK	(HALT_UNHALT_ERR | CQ_EN_DIS_ERR | RPMB_SWITCH_ERR)
 
 struct mmc_cid {
@@ -434,6 +434,8 @@ struct mmc_card {
 /* Make sure CMDQ is empty before queuing DCMD */
 #define MMC_QUIRK_CMDQ_EMPTY_BEFORE_DCMD (1 << 17)
 
+#define MMC_QUIRK_QCA9379_SETTINGS (1 << 18)	/* QCA9379 card settings*/
+
 	unsigned int		erase_size;	/* erase size in sectors */
  	unsigned int		erase_shift;	/* if erase unit is power 2 */
  	unsigned int		pref_erase;	/* in sectors */
@@ -735,6 +737,11 @@ static inline bool mmc_enable_qca6574_settings(const struct mmc_card *c)
 static inline bool mmc_enable_qca9377_settings(const struct mmc_card *c)
 {
 	return c->quirks & MMC_QUIRK_QCA9377_SETTINGS;
+}
+
+static inline bool mmc_enable_qca9379_settings(const struct mmc_card *c)
+{
+	return c->quirks & MMC_QUIRK_QCA9379_SETTINGS;
 }
 
 #define mmc_card_name(c)	((c)->cid.prod_name)

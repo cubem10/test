@@ -215,4 +215,12 @@ config SEC_NAD
 	default n
 	help
 	  Samsung TN NAD Feature, support AT CMD for NAD 2.0
+	  
+config SEC_NOTSUPPORTED_HLOSNAD
+	bool "not supported hlos NAD"
+	default n
+	depends on SEC_NAD && ARCH_MSM8917
+	help
+	  NAD isn't supported on this architecture
+
 endmenu

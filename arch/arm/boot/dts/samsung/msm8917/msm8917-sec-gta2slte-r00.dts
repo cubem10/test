@@ -9429,9 +9429,9 @@
 				reg = <0x10 0x8>;
 			};
 
-			dload_type@18 {
+			dload_type@1c {
 				compatible = "qcom,msm-imem-dload-type";
-				reg = <0x18 0x4>;
+				reg = <0x1c 0x4>;
 			};
 
 			restart_reason@65c {
@@ -11176,7 +11176,7 @@
 					dev = "/dev/block/platform/soc/7824900.sdhci/by-name/vendor";
 					type = "ext4";
 					mnt_flags = "ro,barrier=1,discard";
-					fsmgr_flags = "wait,verify";
+					fsmgr_flags = "wait";
 					status = "disabled";
 				};
 
@@ -11490,6 +11490,7 @@
 		battery,standard_curr = <0x75b>;
 		battery,expired_time = <0x43f8>;
 		battery,recharging_expired_time = <0x1518>;
+		battery,battery_full_capacity = <0x1388>;
 		battery,chg_float_voltage = <0x10cc>;
 		battery,swelling_high_temp_block = <0x19a>;
 		battery,swelling_high_temp_recov = <0x186>;
@@ -11591,6 +11592,7 @@
 			fuelgauge,capacity_max = <0x3e8>;
 			fuelgauge,capacity_max_margin = <0x46>;
 			fuelgauge,capacity_min = <0x0>;
+			fuelgauge,capacity_full = <0x1388>;
 			fuelgauge,capacity_calculation_type = <0x1f>;
 		};
 	};

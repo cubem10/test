@@ -241,7 +241,6 @@ static void diagfwd_data_read_done(struct diagfwd_info *fwd_info,
 	mutex_lock(&fwd_info->data_mutex);
 
 	hdlc_disabled = driver->p_hdlc_disabled[fwd_info->peripheral];
-
 	if (!driver->feature[fwd_info->peripheral].encode_hdlc) {
 		if (fwd_info->buf_1 && fwd_info->buf_1->data == buf) {
 			temp_buf = fwd_info->buf_1;
@@ -302,24 +301,26 @@ static void diagfwd_data_read_done(struct diagfwd_info *fwd_info,
 		}
 	}
 
+	mutex_unlock(&fwd_info->data_mutex);
+	mutex_unlock(&driver->hdlc_disable_mutex);
+
 	if (write_len > 0) {
 		err = diag_mux_write(DIAG_LOCAL_PROC, write_buf, write_len,
 				     temp_buf->ctxt);
 		if (err) {
 			pr_err_ratelimited("diag: In %s, unable to write to mux error: %d\n",
 					   __func__, err);
-			goto end;
+			goto end_write;
 		}
 	}
-	mutex_unlock(&fwd_info->data_mutex);
-	mutex_unlock(&driver->hdlc_disable_mutex);
 	diagfwd_queue_read(fwd_info);
 	return;
 
 end:
-	diag_ws_release();
 	mutex_unlock(&fwd_info->data_mutex);
 	mutex_unlock(&driver->hdlc_disable_mutex);
+end_write:
+	diag_ws_release();
 	if (temp_buf) {
 		DIAG_LOG(DIAG_DEBUG_PERIPHERALS,
 		"Marking buffer as free p: %d, t: %d, buf_num: %d\n",
@@ -758,7 +759,6 @@ static void __diag_fwd_open(struct diagfwd_info *fwd_info)
 	if ((driver->logging_mode != DIAG_USB_MODE) ||
 		driver->usb_connected) {
 		if (fwd_info->buf_1) {
-			atomic_set(&fwd_info->buf_1->in_busy, 0);
 			DIAG_LOG(DIAG_DEBUG_PERIPHERALS,
 			"Buffer 1 for core PD is marked free, p: %d, t: %d\n",
 				fwd_info->peripheral, fwd_info->type);

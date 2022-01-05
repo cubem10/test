@@ -43,6 +43,15 @@ config MUIC_NOTIFIER
 	help
 	  If you say yes here you will get support for
 	  the MUIC attached device status change notification.
+
+config MUIC_DOCK_NOTIFIER
+	bool "MUIC dock notifier support"
+	depends on USE_MUIC
+	default y
+	help
+	  If you say yes here you will get support for
+	  the MUIC deskdock attached device status change notification.
+	  additional drivers must be disable to stop notification.
 	  
 config MUIC_SUPPORT_EARJACK
 	bool "MUIC earjack support"
@@ -352,3 +361,16 @@ config GPIO_UART_SEL
 	help
 	  If you say yes here you will get support for gpio setting for uart_sel.
 
+config MUIC_S2MU005_SUPPORT_DESKDOCK
+	bool "MUIC_S2MU005_SUPPORT_DESKDOCK"
+	depends on USE_MUIC && MUIC_S2MU005
+	default n
+	help
+	  If you say yes here you will get support for muic deskdock.
+
+config MUIC_S2MU005_SUPPORT_WATERPROOF
+	bool "MUIC_S2MU005_SUPPORT_WATERPROOF"
+	depends on USE_MUIC && MUIC_S2MU005
+	default n
+	help
+	  If you say yes here you will get support for muic waterproof functionality.

@@ -2705,8 +2705,16 @@ int mmc_set_signal_voltage(struct mmc_host *host, int signal_voltage, u32 ocr)
 	 */
 	mmc_host_clk_hold(host);
 	err = mmc_wait_for_cmd(host, &cmd, 0);
-	if (err)
-		goto exit;
+	if (err) {
+		if (err == -ETIMEDOUT) {
+			pr_debug("%s: voltage switching failed with err %d\n",
+				mmc_hostname(host), err);
+			err = -EAGAIN;
+			goto power_cycle;
+		} else {
+			goto exit;
+		}
+	}
 
 	if (!mmc_host_is_spi(host) && (cmd.resp[0] & R1_ERROR)) {
 		err = -EIO;
@@ -3035,6 +3043,14 @@ static void _mmc_detect_change(struct mmc_host *host, unsigned long delay,
 	/* wake lock : 500ms */
 	if (!(host->caps & MMC_CAP_NONREMOVABLE))
 			wake_lock_timeout(&host->detect_wake_lock, HZ / 2);
+	/*
+	 * Change in cd_gpio state, so make sure detection part is
+	 * not overided because of manual resume.
+	 */
+	if (cd_irq && mmc_bus_manual_resume(host))
+		host->ignore_bus_resume_flags = true;
+
+	
 	mmc_schedule_delayed_work(&host->detect, delay);
 }
 
@@ -3965,6 +3981,8 @@ void mmc_rescan(struct work_struct *work)
 		host->bus_ops->detect(host);
 
 	host->detect_change = 0;
+	if (host->ignore_bus_resume_flags)
+		host->ignore_bus_resume_flags = false;
 
 	/*
 	 * Let mmc_bus_put() free the bus/bus_ops if we've found that
@@ -4190,7 +4208,7 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 	struct mmc_host *host = container_of(
 		notify_block, struct mmc_host, pm_notify);
 	unsigned long flags;
-	int err = 0;
+	int err = 0, present = 0;
 
 	switch (mode) {
 	case PM_HIBERNATION_PREPARE:
@@ -4217,6 +4235,14 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 		if (!err)
 			break;
 
+		if (!mmc_card_is_removable(host)) {
+			dev_warn(mmc_dev(host),
+				 "pre_suspend failed for non-removable host: "
+				 "%d\n", err);
+			/* Avoid removing non-removable hosts */
+			break;
+		}
+
 		/* Calling bus_ops->remove() with a claimed host can deadlock */
 		host->bus_ops->remove(host);
 		mmc_claim_host(host);
@@ -4232,8 +4258,14 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 
 		spin_lock_irqsave(&host->lock, flags);
 		host->rescan_disable = 0;
+		if (mmc_card_is_removable(host)) {
+			present = !!mmc_gpio_get_cd(host);
+			mmc_gpiod_update_status(host, present);
+		}
 #ifndef CONFIG_MMC_BLOCK_DEFERRED_RESUME	/* This is not needed to resume on pm_notifier */
-		if (mmc_bus_manual_resume(host)) {
+		if (mmc_bus_manual_resume(host) &&
+				!host->ignore_bus_resume_flags &&
+				present) {
 			spin_unlock_irqrestore(&host->lock, flags);
 			break;
 		}

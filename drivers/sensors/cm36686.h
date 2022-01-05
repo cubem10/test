@@ -11,10 +11,14 @@ struct cm36686_platform_data {
 	int cancel_hi_thd;
 	int cancel_low_thd;
 	int default_trim;
+	int cal_skip_adc;
+	int cal_fail_adc;
 #if defined(CONFIG_SENSORS_CM36686_LEDA_EN_GPIO)
 	int leden_gpio;
 #endif
 };
+
 extern struct class *sensors_class;
+
 #endif
 #endif

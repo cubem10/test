@@ -327,7 +327,9 @@ $(INSTALL_TARGETS):
 dtbs: scripts
 	$(Q)$(MAKE) $(build)=$(boot)/dts MACHINE=$(MACHINE) dtbs
 #	$(foreach DIR, $(DTSSUBDIR), $(Q)$(MAKE) $(build)=$(boot)/dts/$(DIR) MACHINE=$(MACHINE) dtbs)
-ifeq ($(CONFIG_SEC_MSM8953_PROJECT),y)
+ifeq ($(CONFIG_ARCH_SDM450),y)
+	$(Q)$(MAKE) $(build)=$(boot)/dts/samsung/sdm450
+else ifeq ($(CONFIG_SEC_MSM8953_PROJECT),y)
 	$(Q)$(MAKE) $(build)=$(boot)/dts/samsung/msm8953 MACHINE=$(MACHINE) dtbs
 else ifeq ($(CONFIG_SEC_MSM8937_PROJECT),y)
 	$(Q)$(MAKE) $(build)=$(boot)/dts/samsung/msm8937 MACHINE=$(MACHINE) dtbs

@@ -19,6 +19,13 @@ config MACH_A6PLTE_SEA_OPEN
 	help
 	  Support for Samsung A6-Plus LTE SEA OPEN device.
 
+config MACH_A6PLTE_MEA_OPEN
+	depends on SEC_A6PLTE_PROJECT
+	default n
+	bool "Samsung A6-Plus LTE MEA OPEN"
+	help
+	  Support for Samsung A6-Plus LTE MEA OPEN device.
+
 config MACH_A6PLTE_LTN_OPEN
         depends on SEC_A6PLTE_PROJECT
         default n
@@ -84,7 +91,14 @@ config MACH_J8PLTE_CIS_SER
 	bool "Samsung J8-Plus LTE CIS SER"
 	help
 	  Support for Samsung J8-Plus LTE CIS SER device.
-
+	  
+ 
+config MACH_J8Y18LTE_MEA_JV 
+	depends on SEC_J8Y18LTE_PROJECT
+	default n
+	bool "Samsung J8Y18-LTE MEA JV"
+	help
+	  Support for Samsung J8Y18-LTE MEA JV device.
 
 config MACH_J8PLTE_EUR_OPEN
 	depends on SEC_J8PLTE_PROJECT
@@ -204,3 +218,47 @@ config MACH_J6PLTE_CIS_SER
 	bool "Samsung J6-Plus LTE CIS SER"
 	help
 	  Support for Samsung J6-Plus LTE CIS SER device.
+
+config SEC_J8Y18LTE_PROJECT
+	depends on ARCH_SDM450
+	default n
+	bool "Samsung J8Y18-LTE Project"
+	help
+	  Support for Samsung J8Y18-LTE Project
+		
+config MACH_J8Y18LTE_CIS_SER 
+	depends on SEC_J8Y18LTE_PROJECT
+	default n
+	bool "Samsung J8Y18-LTE CIS SER"
+	help
+	  Support for Samsung J8Y18-LTE CIS SER device.
+	  
+config MACH_J8Y18LTE_SWA_INS 
+	depends on SEC_J8Y18LTE_PROJECT
+	default n
+	bool "Samsung J8Y18-LTE SWA INS"
+	help
+	  Support for Samsung J8Y18-LTE SWA INS device.
+
+config MACH_J8Y18LTE_SWA_OPEN 
+	depends on SEC_J8Y18LTE_PROJECT
+	default n
+	bool "Samsung J8Y18-LTE SWA OPEN"
+	help
+	  Support for Samsung J8Y18-LTE SWA OPEN device
+
+config MACH_J8Y18LTE_LTN_OPEN 
+	depends on SEC_J8Y18LTE_PROJECT
+	default n
+	bool "Samsung J8Y18-LTE LTN OPEN"
+	help
+	  Support for Samsung J8Y18-LTE LTN OPEN device.
+
+config MACH_J8Y18LTE_SEA_OPEN
+	depends on SEC_J8Y18LTE_PROJECT
+	default n
+	bool "Samsung J8Y18-LTE SEA OPEN"
+	help
+	  Support for Samsung J8Y18-LTE SEA OPEN device.
+	  
+

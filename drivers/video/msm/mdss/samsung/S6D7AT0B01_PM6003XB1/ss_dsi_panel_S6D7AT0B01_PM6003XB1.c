@@ -236,6 +236,12 @@ static void dsi_update_mdnie_data(void)
 	mdnie_data.dsi1_white_default_g = 0xff;
 	mdnie_data.dsi1_white_default_b = 0xff;
 	mdnie_data.dsi1_white_rgb_enabled = 0;
+	mdnie_data.dsi0_white_swa_r = 0;
+	mdnie_data.dsi0_white_swa_g = -11;
+	mdnie_data.dsi0_white_swa_b = -2;
+	mdnie_data.dsi1_white_swa_r = 0;
+	mdnie_data.dsi1_white_swa_g = -11;
+	mdnie_data.dsi1_white_swa_b = -2;
 	mdnie_data.dsi0_scr_step_index = MDNIE_STEP1_INDEX;
 	mdnie_data.dsi1_scr_step_index = MDNIE_STEP1_INDEX;
 }
@@ -245,7 +251,7 @@ static void mdss_panel_init(struct samsung_display_driver_data *vdd)
 	pr_info("%s : %s", __func__, vdd->panel_name);
 
 	vdd->support_panel_max = S6D7AT0B01_PM6003XB1_SUPPORT_PANEL_COUNT;
-	vdd->support_cabc = false;
+	vdd->support_cabc = true;
 
 	/* ON/OFF */
 	vdd->panel_func.samsung_panel_on_pre = mdss_panel_on_pre;

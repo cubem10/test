@@ -1644,9 +1644,11 @@
 		*/
 
 		samsung,self_mask_mem_setting_revA = [
+			29 01 00 00 00 00 03 F0 5A 5A	/* TEST KEY Enable */
 			29 01 00 00 00 00 02 7A 00		/* SM_MASK_EN(0)   */
 			29 01 00 00 00 00 02 75 10		/* MA_SEL(1), IC_SEL, VI_SEL, DC_SEL, AC_SEL */
 			/* image data (4C,5C) ... */
+			29 01 00 00 00 00 03 F0 A5 A5	/* TEST KEY Disable */
 		];
 
 		samsung,self_mask_on_revA = [

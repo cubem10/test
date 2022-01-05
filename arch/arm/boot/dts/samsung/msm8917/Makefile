@@ -94,9 +94,17 @@ ifeq ($(CONFIG_SEC_J4PRIMELTE_PROJECT),y)
                 dtb-y += msm8917-sec-j4primelte-sea-open-r00.dtb
                 dtb-y += msm8917-sec-j4primelte-sea-open-r01.dtb
                 dtb-y += msm8917-sec-j4primelte-sea-open-r02.dtb
-				dtb-y += msm8917-sec-j4primelte-sea-open-r03.dtb
-				dtb-y += msm8917-sec-j4primelte-sea-open-r04.dtb
-				dtb-y += msm8917-sec-j4primelte-sea-open-r06.dtb
+                dtb-y += msm8917-sec-j4primelte-sea-open-r03.dtb
+                dtb-y += msm8917-sec-j4primelte-sea-open-r04.dtb
+                dtb-y += msm8917-sec-j4primelte-sea-open-r06.dtb
+        endif
+        ifeq ($(CONFIG_MACH_J4PRIMELTE_KOR_OPEN),y)
+                dtb-y += msm8917-sec-j4primelte-kor-open-r00.dtb
+                dtb-y += msm8917-sec-j4primelte-kor-open-r01.dtb
+                dtb-y += msm8917-sec-j4primelte-kor-open-r02.dtb
+                dtb-y += msm8917-sec-j4primelte-kor-open-r03.dtb
+                dtb-y += msm8917-sec-j4primelte-kor-open-r04.dtb
+                dtb-y += msm8917-sec-j4primelte-kor-open-r06.dtb
         endif
 endif
 

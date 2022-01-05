@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -59,6 +59,10 @@
 #include <csrApi.h>
 #include <pmcApi.h>
 #include <wlan_hdd_misc.h>
+
+#ifdef SEC_WRITE_SOFTAP_INFO_IN_SYSFS
+tANI_U8 sec_softapinfoString[256];
+#endif /* SEC_WRITE_SOFTAP_INFO_IN_SYSFS */
 
 #ifdef SEC_CONFIG_PSM
 unsigned int wlan_hdd_sec_get_psm(unsigned int original_value);
@@ -224,7 +228,6 @@ REG_TABLE_ENTRY g_registry_table[] =
                  CFG_MARK_INDOOR_AS_DISABLE_DEFAULT,
                  CFG_MARK_INDOOR_AS_DISABLE_MIN,
                  CFG_MARK_INDOOR_AS_DISABLE_MAX),
-
 
    REG_VARIABLE( CFG_FRAG_THRESHOLD_NAME, WLAN_PARAM_Integer,
                  hdd_config_t, FragmentationThreshold,
@@ -1383,6 +1386,13 @@ REG_TABLE_ENTRY g_registry_table[] =
                  CFG_REORDER_TIME_VO_DEFAULT,
                  CFG_REORDER_TIME_VO_MIN,
                  CFG_REORDER_TIME_VO_MAX ),
+
+   REG_VARIABLE( CFG_ENABLE_PN_REPLAY_NAME , WLAN_PARAM_Integer,
+                 hdd_config_t, enablePNReplay,
+                 VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                 CFG_ENABLE_PN_REPLAY_DEFAULT,
+                 CFG_ENABLE_PN_REPLAY_MIN,
+                 CFG_ENABLE_PN_REPLAY_MAX ),
 
    REG_VARIABLE_STRING( CFG_WOWL_PATTERN_NAME, WLAN_PARAM_String,
                         hdd_config_t, wowlPattern,
@@ -3453,6 +3463,13 @@ REG_VARIABLE( CFG_EXTSCAN_ENABLE, WLAN_PARAM_Integer,
                   CFG_SAP_SCAN_BAND_PREFERENCE_MIN,
                   CFG_SAP_SCAN_BAND_PREFERENCE_MAX ),
 
+   REG_VARIABLE(CFG_ENABLE_RTT_SUPPORT, WLAN_PARAM_Integer,
+                  hdd_config_t, enable_rtt_support,
+                  VAR_FLAGS_OPTIONAL,
+                  CFG_ENABLE_RTT_SUPPORT_DEFAULT,
+                  CFG_ENABLE_RTT_SUPPORT_MIN,
+                  CFG_ENABLE_RTT_SUPPORT_MAX ),
+
    REG_VARIABLE( CFG_ENABLE_DYNAMIC_RA_START_RATE_NAME, WLAN_PARAM_Integer,
                   hdd_config_t, enableDynamicRAStartRate,
                   VAR_FLAGS_OPTIONAL |
@@ -3954,6 +3971,7 @@ REG_VARIABLE( CFG_EXTSCAN_ENABLE, WLAN_PARAM_Integer,
                CFG_INDOOR_CHANNEL_SUPPORT_MIN,
                CFG_INDOOR_CHANNEL_SUPPORT_MAX),
 
+
   REG_VARIABLE( CFG_TRIGGER_NULLFRAME_BEFORE_HB_NAME, WLAN_PARAM_Integer,
                 hdd_config_t, trigger_nullframe_before_hb,
                 VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
@@ -3975,40 +3993,60 @@ REG_VARIABLE( CFG_EXTSCAN_ENABLE, WLAN_PARAM_Integer,
                CFG_STA_SAP_SCC_ON_DFS_CHAN_MIN,
                CFG_STA_SAP_SCC_ON_DFS_CHAN_MAX),
 
-  REG_VARIABLE(CFG_ENABLE_POWERSAVE_OFFLOAD_NAME, WLAN_PARAM_Integer,
-               hdd_config_t, enable_power_save_offload,
+  REG_VARIABLE_STRING(CFG_ENABLE_AGG_BTC_SCO_OUI_NAME, WLAN_PARAM_String,
+                      hdd_config_t, enable_aggr_btc_sco_oui,
+                      VAR_FLAGS_OPTIONAL,
+                      (void *) CFG_ENABLE_AGG_BTC_SCO_OUI_DEFAULT),
+
+  REG_VARIABLE(CFG_NUM_BUFF_BTC_SCO_NAME, WLAN_PARAM_Integer,
+               hdd_config_t, num_buff_aggr_btc_sco,
                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-               CFG_ENABLE_POWERSAVE_OFFLOAD_DEFAULT,
-               CFG_ENABLE_POWERSAVE_OFFLOAD_MIN,
-               CFG_ENABLE_POWERSAVE_OFFLOAD_MAX),
+               CFG_NUM_BUFF_BTC_SCO_DEFAULT,
+               CFG_NUM_BUFF_BTC_SCO_MIN,
+               CFG_NUM_BUFF_BTC_SCO_MAX ),
+
+  REG_VARIABLE(CFG_ENABLE_POWERSAVE_OFFLOAD_NAME, WLAN_PARAM_Integer,
+                hdd_config_t, enable_power_save_offload,
+                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                CFG_ENABLE_POWERSAVE_OFFLOAD_DEFAULT,
+                CFG_ENABLE_POWERSAVE_OFFLOAD_MIN,
+                CFG_ENABLE_POWERSAVE_OFFLOAD_MAX),
 
   REG_VARIABLE(CFG_BTC_2M_DYN_LONG_WLAN_LEN_NAME, WLAN_PARAM_Integer,
-               hdd_config_t, btc_dyn_wlan_len,
-               VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-               CFG_BTC_2M_DYN_LONG_WLAN_LEN_DEFAULT,
-               CFG_BTC_2M_DYN_LONG_WLAN_LEN_MIN,
-               CFG_BTC_2M_DYN_LONG_WLAN_LEN_MAX),
+                hdd_config_t, btc_dyn_wlan_len,
+                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                CFG_BTC_2M_DYN_LONG_WLAN_LEN_DEFAULT,
+                CFG_BTC_2M_DYN_LONG_WLAN_LEN_MIN,
+                CFG_BTC_2M_DYN_LONG_WLAN_LEN_MAX),
 
   REG_VARIABLE(CFG_BTC_2M_DYN_LONG_BT_LEN_NAME, WLAN_PARAM_Integer,
-               hdd_config_t, btc_dyn_bt_len,
-               VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-               CFG_BTC_2M_DYN_LONG_BT_LEN_DEFAULT,
-               CFG_BTC_2M_DYN_LONG_BT_LEN_MIN,
-               CFG_BTC_2M_DYN_LONG_BT_LEN_MAX),
+                hdd_config_t, btc_dyn_bt_len,
+                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                CFG_BTC_2M_DYN_LONG_BT_LEN_DEFAULT,
+                CFG_BTC_2M_DYN_LONG_BT_LEN_MIN,
+                CFG_BTC_2M_DYN_LONG_BT_LEN_MAX),
 
   REG_VARIABLE(CFG_BTC_2M_DYN_LONG_BT_EXT_LEN_NAME, WLAN_PARAM_Integer,
-               hdd_config_t, btc_dyn_bt_ext_len,
-               VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-               CFG_BTC_2M_DYN_LONG_BT_EXT_LEN_DEFAULT,
-               CFG_BTC_2M_DYN_LONG_BT_EXT_LEN_MIN,
-               CFG_BTC_2M_DYN_LONG_BT_EXT_LEN_MAX),
+                hdd_config_t, btc_dyn_bt_ext_len,
+                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                CFG_BTC_2M_DYN_LONG_BT_EXT_LEN_DEFAULT,
+                CFG_BTC_2M_DYN_LONG_BT_EXT_LEN_MIN,
+                CFG_BTC_2M_DYN_LONG_BT_EXT_LEN_MAX),
 
   REG_VARIABLE(CFG_BTC_2M_DYN_LONG_NUM_BT_EXT_NAME, WLAN_PARAM_Integer,
-               hdd_config_t, btc_dyn_num_bt_ext,
-               VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-               CFG_BTC_2M_DYN_LONG_NUM_BT_EXT_DEFAULT,
-               CFG_BTC_2M_DYN_LONG_NUM_BT_EXT_MIN,
-               CFG_BTC_2M_DYN_LONG_NUM_BT_EXT_MAX),               
+                hdd_config_t, btc_dyn_num_bt_ext,
+                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                CFG_BTC_2M_DYN_LONG_NUM_BT_EXT_DEFAULT,
+                CFG_BTC_2M_DYN_LONG_NUM_BT_EXT_MIN,
+                CFG_BTC_2M_DYN_LONG_NUM_BT_EXT_MAX),
+
+  REG_VARIABLE(CFG_FORCE_RSNE_OVERRIDE_NAME, WLAN_PARAM_Integer,
+                hdd_config_t, force_rsne_override,
+                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                CFG_FORCE_RSNE_OVERRIDE_DEFAULT,
+                CFG_FORCE_RSNE_OVERRIDE_MIN,
+                CFG_FORCE_RSNE_OVERRIDE_MAX),
+
 };
 
 /*
@@ -4678,6 +4716,10 @@ static void print_hdd_cfg(hdd_context_t *pHddCtx)
             CFG_ENABLE_POWERSAVE_OFFLOAD_NAME,
             pHddCtx->cfg_ini->enable_power_save_offload);
 
+    VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO_HIGH,
+            "Name = [%s] Value = [%u] ",
+            CFG_FORCE_RSNE_OVERRIDE_NAME,
+            pHddCtx->cfg_ini->force_rsne_override);
 }
 
 
@@ -4815,7 +4857,7 @@ static int parseHexDigit(char c)
 
 // Control power save mode on/off
 #ifdef SEC_CONFIG_PSM
-#define SEC_PSM_FILEPATH	"/data/misc/conn/.psm.info"
+#define SEC_PSM_FILEPATH	"/data/vendor/conn/.psm.info"
 
 unsigned int wlan_hdd_sec_get_psm(unsigned int original_value)
 {
@@ -4873,40 +4915,6 @@ unsigned int wlan_hdd_sec_get_grip_power(int channel)
 }
 #endif /* SEC_CONFIG_GRIP_POWER */
 
-#ifdef SEC_WRITE_SOFTAP_INFO_IN_FILE
-
-#define SEC_SOFTAP_FILEPATH "/data/misc/conn/.softap.info"
-
-static int wlan_hdd_sec_write_softap_info_file(char *softap_info)
-{
-    int ret = 0;
-    struct file *fp = NULL;
-    char strbuffer[256] = {0};
-    mm_segment_t oldfs = {0};
-
-    oldfs = get_fs();
-    set_fs(get_ds());
-
-    fp = filp_open(SEC_SOFTAP_FILEPATH, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
-    if (IS_ERR(fp)) {
-        hddLog(LOGE, "%s: can't create file : %s\n",__func__,SEC_SOFTAP_FILEPATH);
-    } else {
-        if (fp->f_mode & FMODE_WRITE) {
-            snprintf(strbuffer, sizeof(strbuffer), "%s\n", softap_info);
-            if (vfs_write(fp, strbuffer, strlen(strbuffer), &fp->f_pos) < 0)
-                hddLog(LOGE, "%s: can't write file : %s",__func__,SEC_SOFTAP_FILEPATH);
-            else
-                ret = 1;
-        }
-    }
-    if (fp && (!IS_ERR(fp)))
-        filp_close(fp, NULL);
-    set_fs(oldfs);
-
-    return ret;
-}
-#endif /* SEC_WRITE_SOFTAP_INFO_IN_FILE */
-
 static VOS_STATUS hdd_apply_cfg_ini( hdd_context_t *pHddCtx, tCfgIniEntry* iniTable, unsigned long entries)
 {
    VOS_STATUS match_status = VOS_STATUS_E_FAILURE;
@@ -4930,6 +4938,7 @@ static VOS_STATUS hdd_apply_cfg_ini( hdd_context_t *pHddCtx, tCfgIniEntry* iniTa
    {
       hddLog(LOGE, "%s: MAX_CFG_INI_ITEMS too small, must be at least %ld",
              __func__, cRegTableEntries);
+      VOS_ASSERT(1);
    }
 
    for ( idx = 0; idx < cRegTableEntries; idx++, pRegEntry++ )
@@ -5023,7 +5032,22 @@ static VOS_STATUS hdd_apply_cfg_ini( hdd_context_t *pHddCtx, tCfgIniEntry* iniTa
 			value = wlan_hdd_sec_get_psm(value);
 			printk("[WIFI] %s: sec_control_psm = %u", pRegEntry->RegName, value);
 		}
-#endif
+#endif /* SEC_CONFIG_PSM */
+#ifdef SEC_WRITE_SOFTAP_INFO_IN_SYSFS
+		 if (!strcmp(pRegEntry->RegName, CFG_BAND_CAPABILITY_NAME)) {
+		 	scnprintf(sec_softapinfoString, 256,
+			"#softap.info\nDualBandConcurrency=%s\n5G=%s\nmaxClient=%d\nHalFn_setCountryCodeHal=%s\nHalFn_getValidChannels=%s\nDualInterface=%s\n",
+        	"no",
+        	value ? "no" : "yes",
+        	(WLAN_MAX_STA_COUNT > 10) ? 10 : WLAN_MAX_STA_COUNT,
+        	"yes",
+        	"yes",
+        	"yes"
+			);
+			printk("\n[WIFI] softapinfo=[%s]\n", sec_softapinfoString);
+		 }
+#endif /* SEC_WRITE_SOFTAP_INFO_IN_SYSFS */
+
          // Move the variable into the output field.
          memcpy( pField, &value, pRegEntry->VarSize );
       }
@@ -5162,23 +5186,6 @@ static VOS_STATUS hdd_apply_cfg_ini( hdd_context_t *pHddCtx, tCfgIniEntry* iniTa
       }
    }
 
-#ifdef SEC_WRITE_SOFTAP_INFO_IN_FILE
-    {
-        char softap_info_string[256] = {0};
-
-        scnprintf(softap_info_string, 256,
-        "#softap.info\nDualBandConcurrency=%s\n5G=%s\nmaxClient=%d\nHalFn_setCountryCodeHal=%s\nHalFn_getValidChannels=%s",
-        "no",
-        pHddCtx->cfg_ini->nBandCapability ? "no" : "yes",		
-        (WLAN_MAX_STA_COUNT > 10) ? 10 : WLAN_MAX_STA_COUNT,
-        "yes",
-        "yes"
-        );
-        if (!wlan_hdd_sec_write_softap_info_file(softap_info_string)) {
-            hddLog(LOGE, "%s: faild to write softap info in the file",__func__);
-        }
-    }
-#endif
    print_hdd_cfg(pHddCtx);
 
   return( ret_status );
@@ -5326,9 +5333,9 @@ static void hdd_set_power_save_config(hdd_context_t *pHddCtx, tSmeConfigParams *
 
 VOS_STATUS hdd_string_to_u8_array(char *str, tANI_U8 *intArray,
 				   tANI_U8 *len, tANI_U8 intArrayMaxLen,
-				   char *seperator)
+				   char *seperator, bool to_hex)
 {
-   char *s = str;
+   char *format, *s = str;
 
    if( str == NULL || intArray == NULL || len == NULL )
    {
@@ -5336,12 +5343,13 @@ VOS_STATUS hdd_string_to_u8_array(char *str, tANI_U8 *intArray,
    }
    *len = 0;
 
+   format = (to_hex) ? "%02x" : "%d";
    while ( (s != NULL) && (*len < intArrayMaxLen) )
    {
       int val;
       //Increment length only if sscanf succesfully extracted one element.
       //Any other return value means error. Ignore it.
-      if( sscanf(s, "%d", &val ) == 1 )
+      if( sscanf(s, format, &val ) == 1 )
       {
          if (val > 255 || val < 0)
              return VOS_STATUS_E_FAILURE;
@@ -5372,13 +5380,14 @@ int hdd_string_to_string_array(char *data, uint8_t *datalist,
     if ((data == NULL) || ( datalist == NULL) || (num_entries == NULL))
         return VOS_STATUS_E_INVAL;
 
-    str = vos_mem_malloc(strlen((char *)data));
+    str = vos_mem_malloc(strlen((char *)data) + 1);
     if (!str) {
        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
                  "%s str allocation failed",__func__);
        return -ENOMEM;
     }
     vos_mem_copy(str, data, strlen((char *)data));
+    str[strlen((char *)data)] = '\0';
     temp_str = str;
     /* parse the string */
     while (str && ('\0' != *str) && (num < max_entries)) {
@@ -6494,7 +6503,7 @@ v_BOOL_t hdd_update_config_dat( hdd_context_t *pHddCtx )
    if(ccmCfgSetInt(pHddCtx->hHal, WNI_CFG_ENABLE_POWERSAVE_OFFLOAD,
                    pConfig->enable_power_save_offload, NULL,
                    eANI_BOOLEAN_FALSE)
-      ==eHAL_STATUS_FAILURE)
+       ==eHAL_STATUS_FAILURE)
    {
       fStatus = FALSE;
       hddLog(LOGE, "Couldn't pass WNI_CFG_ENABLE_POWERSAVE_OFFLOAD to CCM");
@@ -6534,9 +6543,10 @@ v_BOOL_t hdd_update_config_dat( hdd_context_t *pHddCtx )
       hddLog(LOGE, "Couldn't pass WNI_CFG_BTC_2M_DYN_LONG_NUM_BT_EXT to CCM");
    }
 
+
+
    return fStatus;
 }
-
 
 /**---------------------------------------------------------------------------
 
@@ -6555,6 +6565,7 @@ VOS_STATUS hdd_set_sme_config( hdd_context_t *pHddCtx )
    VOS_STATUS status = VOS_STATUS_SUCCESS;
    eHalStatus halStatus;
    tpSmeConfigParams smeConfig;
+   tANI_U8 i;
 
    hdd_config_t *pConfig = pHddCtx->cfg_ini;
 
@@ -6775,7 +6786,8 @@ VOS_STATUS hdd_set_sme_config( hdd_context_t *pHddCtx )
    hdd_string_to_u8_array( pConfig->neighborScanChanList,
                                         smeConfig->csrConfig.neighborRoamConfig.neighborScanChanList.channelList,
                                         &smeConfig->csrConfig.neighborRoamConfig.neighborScanChanList.numChannels,
-                                        WNI_CFG_VALID_CHANNEL_LIST_LEN, "," );
+                                        WNI_CFG_VALID_CHANNEL_LIST_LEN, ",",
+                                        false);
 #endif
 
    smeConfig->csrConfig.addTSWhenACMIsOff = pConfig->AddTSWhenACMIsOff;
@@ -6855,7 +6867,18 @@ VOS_STATUS hdd_set_sme_config( hdd_context_t *pHddCtx )
 
    smeConfig->csrConfig.sta_auth_retries_for_code17 =
                         pHddCtx->cfg_ini->sta_auth_retries_for_code17;
+   if (hdd_string_to_u8_array(pHddCtx->cfg_ini->enable_aggr_btc_sco_oui,
+       smeConfig->csrConfig.agg_btc_sco_oui, &i, VENDOR_AP_OUI_SIZE, "-",
+       true) != VOS_STATUS_SUCCESS)
+       vos_mem_set(smeConfig->csrConfig.agg_btc_sco_oui, VENDOR_AP_OUI_SIZE, 0);
 
+   /* Disable aggrigation if value is 0 or 1 (CFG_NUM_BUFF_BTC_SCO_INVALID) */
+   if (pHddCtx->cfg_ini->num_buff_aggr_btc_sco == CFG_NUM_BUFF_BTC_SCO_INVALID)
+       pHddCtx->cfg_ini->num_buff_aggr_btc_sco = CFG_NUM_BUFF_BTC_SCO_MIN;
+   smeConfig->csrConfig.num_ba_buff_btc_sco =
+                        pHddCtx->cfg_ini->num_buff_aggr_btc_sco;
+   smeConfig->csrConfig.num_ba_buff =
+                        pHddCtx->cfg_ini->numBuffAdvert;
    sme_set_mgmt_frm_via_wq5((tHalHandle)(pHddCtx->hHal),
            pHddCtx->cfg_ini->sendMgmtPktViaWQ5);
 

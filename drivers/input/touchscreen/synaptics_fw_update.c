@@ -870,6 +870,9 @@ static enum flash_area fwu_go_nogo(void)
 				&fwu->image_name[NAME_BUFFER_SIZE] - strptr);
 		index = 0;
 		strptr += 2;
+		while (strptr[index] >= '0' && strptr[index] <= '9') {
+		while ((index < MAX_FIRMWARE_ID_LEN - 1) && strptr[index] >= '0'
+						&& strptr[index] <= '9') {
 		while (index < max_index && isdigit(strptr[index])) {
 			imagePR[index] = strptr[index];
 			index++;

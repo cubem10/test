@@ -158,18 +158,18 @@ int isl98611_backlight_parse_dt(struct device *dev,
 	return 0;
 }
 
-int isl98611_backlight_pwm_power(struct mdss_dsi_ctrl_pdata *ctrl, int enable)
+void isl98611_backlight_pwm_power(int enable)
 {
 	struct isl98611_backlight_info *info = pinfo;
 
 
 	if (!info) {
 		LCD_ERR("error pinfo\n");
-		return 0;
+		return;
 	}
 
 	/* For PBA BOOTING */
-	if (!mdss_panel_attached(ctrl->ndx))
+	if (!mdss_panel_attached(DISPLAY_1))
 		enable = 0;	
 
 	if (enable)
@@ -178,9 +178,6 @@ int isl98611_backlight_pwm_power(struct mdss_dsi_ctrl_pdata *ctrl, int enable)
 		gpio_set_value(info->pdata->gpio_en, 0);
 
 	LCD_INFO("enable : %d \n", enable);
-
-	return 0;
-
 }
 
 int isl98611_backlight_power(struct mdss_dsi_ctrl_pdata *ctrl, int enable)
@@ -209,11 +206,14 @@ int isl98611_backlight_power(struct mdss_dsi_ctrl_pdata *ctrl, int enable)
 
 		/* gpio_en is enabled after DISPAY_ON */
 		gpio_set_value(info->pdata->gpio_enp, 1);
+		mdelay(10);
 		gpio_set_value(info->pdata->gpio_enn, 1);
+		mdelay(9);
 	} else {
 		gpio_set_value(info->pdata->gpio_enn, 0);
+		mdelay(10);
 		gpio_set_value(info->pdata->gpio_enp, 0);
-		usleep_range(3000,3000);
+		mdelay(13);
 	}
 
 	return 0;
@@ -225,6 +225,7 @@ static int isl98611_backlight_probe(struct i2c_client *client,
 	struct i2c_adapter *adapter = to_i2c_adapter(client->dev.parent);
 	struct isl98611_backlight_platform_data *pdata;
 	struct isl98611_backlight_info *info;
+	struct samsung_display_driver_data *vdd = samsung_get_vdd();
 
 	int error = 0;
 
@@ -259,6 +260,9 @@ static int isl98611_backlight_probe(struct i2c_client *client,
 	}
 
 	i2c_set_clientdata(client, info);
+
+	vdd->panel_func.samsung_panel_power_ic_control = isl98611_backlight_power;
+	vdd->panel_func.samsung_bl_ic_pwm_en = isl98611_backlight_pwm_power;
 
 	return error;
 }

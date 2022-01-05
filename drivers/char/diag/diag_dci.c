@@ -2196,8 +2196,8 @@ struct diag_dci_client_tbl *dci_lookup_client_entry_pid(int tgid)
 		pid_struct = find_get_pid(entry->tgid);
 		if (!pid_struct) {
 			DIAG_LOG(DIAG_DEBUG_DCI,
-				"diag: valid pid doesn't exist for pid = %d\n",
-				entry->tgid);
+				"diag: Exited pid (%d) doesn't match dci client of pid (%d)\n",
+				tgid, entry->tgid);
 			continue;
 		}
 		task_s = get_pid_task(pid_struct, PIDTYPE_PID);
@@ -2874,7 +2874,7 @@ int diag_dci_register_client(struct diag_dci_reg_tbl_t *reg_entry)
 
 	new_entry->buffers = kzalloc(new_entry->num_buffers *
 				     sizeof(struct diag_dci_buf_peripheral_t),
-				     GFP_KERNEL);
+					GFP_KERNEL);
 	if (!new_entry->buffers) {
 		pr_err("diag: Unable to allocate buffers for peripherals in %s\n",
 								__func__);
@@ -2898,7 +2898,7 @@ int diag_dci_register_client(struct diag_dci_reg_tbl_t *reg_entry)
 		if (!proc_buf->buf_primary)
 			goto fail_alloc;
 		proc_buf->buf_cmd = kzalloc(sizeof(struct diag_dci_buffer_t),
-					    GFP_KERNEL);
+					GFP_KERNEL);
 		if (!proc_buf->buf_cmd)
 			goto fail_alloc;
 		err = diag_dci_init_buffer(proc_buf->buf_primary,

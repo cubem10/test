@@ -51,6 +51,16 @@
 #include <linux/input/tui_hal_ts.h>
 #endif
 
+#ifdef CONFIG_SECURE_TOUCH
+#include <linux/atomic.h>
+#include <linux/clk.h>
+#include <linux/pm_runtime.h>
+#include <soc/qcom/scm.h>
+
+#define SECURE_TOUCH_ENABLE	1
+#define SECURE_TOUCH_DISABLE	0
+#endif
+
 #ifdef CONFIG_SEC_SYSFS
 #include <linux/sec_sysfs.h>
 #endif
@@ -664,7 +674,17 @@ struct sec_ts_data {
 	/*bool fb_ready;*/
 #endif
 	struct delayed_work work_read_info;
-
+#ifdef CONFIG_SECURE_TOUCH
+	atomic_t secure_enabled;
+	atomic_t secure_pending_irqs;
+	struct completion secure_powerdown;
+	struct completion secure_interrupt;
+#if defined(CONFIG_TRUSTONIC_TRUSTED_UI) || defined(CONFIG_TRUSTONIC_TRUSTED_UI_QC)
+	struct completion st_irq_received;
+#endif
+	struct clk *core_clk;
+	struct clk *iface_clk;
+#endif
 	struct completion resume_done;
 	struct wake_lock wakelock;
 	struct sec_cmd_data sec;

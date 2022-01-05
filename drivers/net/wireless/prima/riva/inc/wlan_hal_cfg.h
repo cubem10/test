@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2013,2016,2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -286,10 +286,11 @@
 #define QWLAN_HAL_CFG_BTC_2M_DYN_LONG_BT_LEN                 228
 #define QWLAN_HAL_CFG_BTC_2M_DYN_LONG_BT_EXT_LEN             229
 #define QWLAN_HAL_CFG_BTC_2M_DYN_LONG_NUM_BT_EXT             230
+
 #define QWLAN_HAL_CFG_MAX_PARAMS                             231
 
 /* Total number of Integer CFGs. This is used while allocating the memory for TLV */
-#define QWLAN_HAL_CFG_INTEGER_PARAM                     231
+#define QWLAN_HAL_CFG_INTEGER_PARAM                          231
 
 /*-------------------------------------------------------------------------
   Configuration Parameter min, max, defaults

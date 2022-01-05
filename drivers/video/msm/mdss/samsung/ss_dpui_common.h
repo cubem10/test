@@ -1,9 +1,9 @@
 /*
- * linux/drivers/video/fbdev/exynos/panel/ss_dpui_common.h
+ * linux/drivers/video/fbdev/msm/samsung/ss_dpui_common.h
  *
  * Header file for Samsung Common LCD Driver.
  *
- * Copyright (c) 2016 Samsung Electronics
+ * Copyright (c) 2017 Samsung Electronics
  * Gwanghui Lee <gwanghui.lee@samsung.com>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -15,7 +15,11 @@
 #define __DPUI_H__
 
 #define MAX_DPUI_KEY_LEN	(20)
-#define MAX_DPUI_VAL_LEN	(128)
+/* Increase buf size for SS LOG.
+ * TODO: Instead of fixed length, allocate buf dynamically using kmalloc.
+ */
+#define MAX_DPUI_VAL_LEN	(700) // (128)
+
 
 enum {
 	DPUI_AUTO_CLEAR_OFF,
@@ -34,9 +38,7 @@ enum dpui_type {
 	DPUI_TYPE_NONE,
 	DPUI_TYPE_MDNIE,
 	DPUI_TYPE_PANEL,
-	DPUI_TYPE_DISP,
-	DPUI_TYPE_MIPI,
-	DPUI_TYPE_ALL,
+	DPUI_TYPE_CTRL,
 	MAX_DPUI_TYPE,
 };
 
@@ -57,18 +59,17 @@ enum dpui_key {
 	DPUI_KEY_NONE,
 	DPUI_KEY_WCRD_X,	/* white color x-coordinate */
 	DPUI_KEY_WCRD_Y,	/* white color y-coordinate */
-	DPUI_KEY_WOFS_R,	/* mdnie whiteRGB red offset from user */
-	DPUI_KEY_WOFS_G,	/* mdnie whiteRGB green offset from user */
-	DPUI_KEY_WOFS_B,	/* mdnie whiteRGB blue offset from user */
-	DPUI_KEY_VSYE,	/* vsync timeout count */
-	DPUI_KEY_DSIE,	/* dsi r/w error */
-	DPUI_KEY_PNTE,	/* panel te min, max */
-	DPUI_KEY_ESDD,	/* esd detect */
-	DPUI_KEY_LCDID1, /* Fab, window color */
-	DPUI_KEY_LCDID2, /* Touch IC, DCDC IC, EL material */
-	DPUI_KEY_LCDID3, /* D-IC, Op code */
-	DPUI_KEY_MAID_DATE, /* Manufacture date: year/mon/day/hour/min/sec */
-	DPUI_KEY_DISP_MODEL, /* Vendor and display model name */
+	DPUI_KEY_WOFS_R,	/* mdnie whiteRGB red offset from user and factory */
+	DPUI_KEY_WOFS_G,	/* mdnie whiteRGB green offset from user and factory */
+	DPUI_KEY_WOFS_B,	/* mdnie whiteRGB blue offset from user and factory */
+	DPUI_KEY_WOFS_R_ORG,	/* mdnie whiteRGB red offset from factory */
+	DPUI_KEY_WOFS_G_ORG,	/* mdnie whiteRGB green offset from factory */
+	DPUI_KEY_WOFS_B_ORG,	/* mdnie whiteRGB blue offset from factory */
+	DPUI_KEY_LCDID1,	/* panel id 1 */
+	DPUI_KEY_LCDID2,	/* panel id 2 */
+	DPUI_KEY_LCDID3,	/* panel id 3 */
+	DPUI_KEY_MAID_DATE,	/* panel manufacture date */
+	DPUI_KEY_DISP_MODEL,	/* panel model name */
 	DPUI_KEY_CHIPID,	/* display driver-ic chip id */
 	DPUI_KEY_CELLID,	/* panel cell id */
 	DPUI_KEY_PNDSIE,	/* panel dsi error count */
@@ -77,12 +78,23 @@ enum dpui_key {
 	DPUI_KEY_PNVLO3E,	/* panel VLOUT3 error count */
 	DPUI_KEY_PNESDE,	/* panel ESD error count */
 	DPUI_KEY_PNSDRE,	/* panel OTP loading error count */
-#ifdef CONFIG_SUPPORT_POC_FLASH
 	DPUI_KEY_PNPOCT,	/* panel POC try count */
 	DPUI_KEY_PNPOCF,	/* panel POC fail count */
 	DPUI_KEY_PNPOCI,	/* panel POC image index */
 	DPUI_KEY_PNPOCI_ORG,	/* panel POC image index in factory */
-#endif
+	DPUI_KEY_PNPOC_ER_TRY,	/* panel POC erase try count */
+	DPUI_KEY_PNPOC_ER_FAIL,	/* panel POC erase fail count */
+	DPUI_KEY_PNPOC_WR_TRY,	/* panel POC write try count */
+	DPUI_KEY_PNPOC_WR_FAIL,	/* panel POC write fail count */
+	DPUI_KEY_PNPOC_RD_TRY,	/* panel POC read try count */
+	DPUI_KEY_PNPOC_RD_FAIL,	/* panel POC read fail count */
+	/* dependent on processor */
+	DPUI_KEY_QCT_DSIE,	/* display controller dsi error count */
+	DPUI_KEY_QCT_PPTO,	/* display controller pingpong timeout count */
+	DPUI_KEY_QCT_NO_TE,	/* display controller no TE response  count */
+	DPUI_KEY_QCT_RCV_CNT,	/* display controller recovery count */
+	DPUI_KEY_QCT_SSLOG,	/* display controller ss debugging log */
+
 	MAX_DPUI_KEY,
 };
 
@@ -118,23 +130,21 @@ struct dpui_info {
 };
 
 #ifdef CONFIG_DISPLAY_USE_INFO
-void dpui_logging_notify(unsigned long, void *);
-int dpui_logging_register(struct notifier_block *, enum dpui_type);
-int dpui_logging_unregister(struct notifier_block *);
-void update_dpui_log(enum dpui_log_level);
-void clear_dpui_log(enum dpui_log_level);
-int get_dpui_log(char *, enum dpui_log_level);
-int set_dpui_field(enum dpui_key, char *, int);
-int set_dpui_u32_field(enum dpui_key, u32);
-int get_dpui_u32_field(enum dpui_key, u32 *);
-int inc_dpui_u32_field(enum dpui_key, u32);
+int dpui_logging_register(struct notifier_block *n, enum dpui_type type);
+int dpui_logging_unregister(struct notifier_block *n);
+void update_dpui_log(enum dpui_log_level level, enum dpui_type type);
+void clear_dpui_log(enum dpui_log_level level, enum dpui_type type);
+int get_dpui_log(char *buf, enum dpui_log_level level, enum dpui_type type);
+int set_dpui_field(enum dpui_key key, char *buf, int size);
+int set_dpui_u32_field(enum dpui_key key, u32 value);
+int get_dpui_u32_field(enum dpui_key key, u32 *value);
+int inc_dpui_u32_field(enum dpui_key key, u32 value);
 #else
-static inline void dpui_logging_notify(unsigned long val, void *v) { return; }
 static inline int dpui_logging_register(struct notifier_block *n, enum dpui_type type) { return 0; }
 static inline int dpui_logging_unregister(struct notifier_block *n) { return 0; }
-static inline void update_dpui_log(enum dpui_log_level level) { return; }
-static inline void clear_dpui_log(enum dpui_log_level level) { return; }
-static inline int get_dpui_log(char *buf, enum dpui_log_level level) { return 0; }
+static inline void update_dpui_log(enum dpui_log_level level, enum dpui_type type) { return; }
+static inline void clear_dpui_log(enum dpui_log_level level, enum dpui_type type) { return; }
+static inline int get_dpui_log(char *buf, enum dpui_log_level level, enum dpui_type type) { return 0; }
 static inline int set_dpui_field(enum dpui_key key, char *buf, int size) { return 0; }
 static inline int set_dpui_u32_field(enum dpui_key key, u32 value) { return 0; }
 static inline int get_dpui_u32_field(enum dpui_key key, u32 *value) { return 0; }

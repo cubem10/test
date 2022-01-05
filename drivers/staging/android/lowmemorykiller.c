@@ -62,6 +62,8 @@
 #ifdef LMK_COUNT_READ
 static uint32_t lmk_count = 0;
 #endif
+static int lmkd_count;
+static int lmkd_cricount;
 
 #ifdef CONFIG_SEC_OOM_KILLER
 #define MULTIPLE_OOM_KILLER
@@ -810,6 +812,8 @@ module_param_named(lmkcount, lmk_count, uint, S_IRUGO);
 #ifdef OOM_COUNT_READ
 module_param_named(oomcount, oom_count, uint, S_IRUGO);
 #endif
+module_param_named(lmkd_count, lmkd_count, int, 0644);
+module_param_named(lmkd_cricount, lmkd_cricount, int, 0644);
 
 module_init(lowmem_init);
 module_exit(lowmem_exit);

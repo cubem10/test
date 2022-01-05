@@ -81,6 +81,7 @@ static irqreturn_t etspi_fingerprint_interrupt(int irq, void *dev_id)
 	wake_lock_timeout(&etspi->fp_signal_lock, 1 * HZ);
 	pr_info("%s FPS triggered.int_count(%d) On(%d)\n", __func__,
 		etspi->int_count, etspi->finger_on);
+	etspi->interrupt_count++;
 	return IRQ_HANDLED;
 }
 
@@ -179,6 +180,7 @@ static void etspi_reset(struct etspi_data *etspi)
 	gpio_set_value(etspi->sleepPin, 0);
 	usleep_range(1050, 1100);
 	gpio_set_value(etspi->sleepPin, 1);
+	etspi->reset_count++;	
 }
 
 static void etspi_power_control(struct etspi_data *etspi, int status)
@@ -229,6 +231,10 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct spi_device *spi;
 	u32 tmp;
 	struct egis_ioc_transfer *ioc = NULL;
+#ifdef CONFIG_SENSORS_FINGERPRINT_32BITS_PLATFORM_ONLY
+		struct egis_ioc_transfer_32 *ioc_32 = NULL;
+		u64 tx_buffer_64, rx_buffer_64;
+#endif
 	u8 *buf, *address, *result, *fr;
 	/* Check type and command number */
 	if (_IOC_TYPE(cmd) != EGIS_IOC_MAGIC) {
@@ -274,7 +280,43 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		retval = -ENOTTY;
 		goto out;
 	}
-
+#ifdef CONFIG_SENSORS_FINGERPRINT_32BITS_PLATFORM_ONLY
+		tmp = _IOC_SIZE(cmd);
+		if ((tmp == 0) || (tmp % sizeof(struct egis_ioc_transfer_32)) != 0) {
+			pr_err("%s ioc_32 size error\n", __func__);
+			retval = -EINVAL;
+			goto out;
+		}
+		ioc_32 = kmalloc(tmp, GFP_KERNEL);
+		if (ioc_32 == NULL) {
+			retval = -ENOMEM;
+			pr_err("%s ioc_32 kmalloc error\n", __func__);
+			goto out;
+		}
+		if (__copy_from_user(ioc_32, (void __user *)arg, tmp)) {
+			retval = -EFAULT;
+			pr_err("%s ioc_32 copy_from_user error\n", __func__);
+			goto out;
+		}
+		ioc = kmalloc(sizeof(struct egis_ioc_transfer), GFP_KERNEL);
+		if (ioc == NULL) {
+			retval = -ENOMEM;
+			pr_err("%s ioc kmalloc error\n", __func__);
+			goto out;
+		}
+		tx_buffer_64 = (u64)ioc_32->tx_buf;
+		rx_buffer_64 = (u64)ioc_32->rx_buf;
+		ioc->tx_buf = (u8 *)tx_buffer_64;
+		ioc->rx_buf = (u8 *)rx_buffer_64;
+		ioc->len = ioc_32->len;
+		ioc->speed_hz = ioc_32->speed_hz;
+		ioc->delay_usecs = ioc_32->delay_usecs;
+		ioc->bits_per_word = ioc_32->bits_per_word;
+		ioc->cs_change = ioc_32->cs_change;
+		ioc->opcode = ioc_32->opcode;
+		memcpy(ioc->pad, ioc_32->pad, 3);
+		kfree(ioc_32);
+#else
 	tmp = _IOC_SIZE(cmd);
 	if ((tmp == 0) || (tmp % sizeof(struct egis_ioc_transfer)) != 0) {
 		pr_err("%s ioc size error\n", __func__);
@@ -292,6 +334,7 @@ static long etspi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		retval = -EFAULT;
 		goto out;
 	}
+#endif
 
 	switch (ioc->opcode) {
 	/*
@@ -923,6 +966,7 @@ static int etspi_type_check(struct etspi_data *etspi)
 	 * ET510D : 0x03 / 0x0A / 0x05
 	 * ET516B : 0x01 or 0x02 / 0x10 / 0x05
 	 * ET520  : 0x03 / 0x14 / 0x05
+	 * ET520E  : 0x04 / 0x14 / 0x05
 	 * ET523  : 0x00 / 0x17 / 0x05
 	 */
 	if (((buf1 == 0x01) || (buf1 == 0x02))
@@ -935,6 +979,9 @@ static int etspi_type_check(struct etspi_data *etspi)
 	} else if ((buf1 == 0x03) && (buf2 == 0x14) && (buf3 == 0x05)) {
 		etspi->sensortype = SENSOR_EGIS;
 		pr_info("%s sensor type is EGIS ET520 sensor\n", __func__);
+	} else if ((buf1 == 0x04) && (buf2 == 0x14) && (buf3 == 0x05)) {
+		etspi->sensortype = SENSOR_EGIS;
+		pr_info("%s sensor type is EGIS ET520E sensor\n", __func__);
 	} else if((buf1 == 0x00) && (buf2 == 0x17) && (buf3 == 0x05)) {
 		etspi->sensortype = SENSOR_EGIS;
 		pr_info("%s sensor type is EGIS ET523 sensor\n", __func__);
@@ -1001,11 +1048,53 @@ static ssize_t etspi_adm_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d\n", DETECT_ADM);
 }
 
+static ssize_t etspi_intcnt_show(struct device *dev,
+			       struct device_attribute *attr, char *buf)
+{
+	struct etspi_data *data = dev_get_drvdata(dev);
+	return snprintf(buf, PAGE_SIZE, "%d\n", data->interrupt_count);
+}
+
+static ssize_t etspi_intcnt_store(struct device *dev,
+				struct device_attribute *attr, const char *buf,
+				size_t size)
+{
+	struct etspi_data *data = dev_get_drvdata(dev);
+
+	if (sysfs_streq(buf, "c")) {
+		data->interrupt_count = 0;
+		pr_info("initialization is done\n");
+	}
+	return size;
+}
+
+static ssize_t etspi_resetcnt_show(struct device *dev,
+			       struct device_attribute *attr, char *buf)
+{
+	struct etspi_data *data = dev_get_drvdata(dev);
+	return snprintf(buf, PAGE_SIZE, "%d\n", data->reset_count);
+}
+
+static ssize_t etspi_resetcnt_store(struct device *dev,
+				struct device_attribute *attr, const char *buf,
+				size_t size)
+{
+	struct etspi_data *data = dev_get_drvdata(dev);
+
+	if (sysfs_streq(buf, "c")) {
+		data->reset_count = 0;
+		pr_info("initialization is done\n");
+	}
+	return size;
+}
+
 static DEVICE_ATTR(bfs_values, 0444, etspi_bfs_values_show, NULL);
 static DEVICE_ATTR(type_check, 0444, etspi_type_check_show, NULL);
 static DEVICE_ATTR(vendor, 0444, etspi_vendor_show, NULL);
 static DEVICE_ATTR(name, 0444, etspi_name_show, NULL);
 static DEVICE_ATTR(adm, 0444, etspi_adm_show, NULL);
+static DEVICE_ATTR(intcnt, 0664, etspi_intcnt_show, etspi_intcnt_store);
+static DEVICE_ATTR(resetcnt, 0664, etspi_resetcnt_show, etspi_resetcnt_store);
 
 static struct device_attribute *fp_attrs[] = {
 	&dev_attr_bfs_values,
@@ -1013,6 +1102,8 @@ static struct device_attribute *fp_attrs[] = {
 	&dev_attr_vendor,
 	&dev_attr_name,
 	&dev_attr_adm,
+	&dev_attr_intcnt,
+	&dev_attr_resetcnt,
 	NULL,
 };
 
@@ -1144,6 +1235,8 @@ static int etspi_probe(struct spi_device *spi)
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
 	etspi->tz_mode = true;
 #endif
+	etspi->reset_count = 0;
+	etspi->interrupt_count = 0;
 	/* If we can allocate a minor number, hook up this device.
 	 * Reusing minors is fine so long as udev or mdev is working.
 	 */

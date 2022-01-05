@@ -90,7 +90,6 @@ void make_self_dispaly_img_cmds(enum mipi_samsung_tx_cmd_list cmd, u32 op)
 			tcmds[i].payload[j] = data[data_idx++];
 
 		tcmds[i].dchdr.dlen = j;
-
 		pcmds->cmds[i] = tcmds[i];
 
 		LCD_DEBUG("dlen (%d), data_idx (%d)\n", j, data_idx);
@@ -807,6 +806,16 @@ int read_ddi_log(struct samsung_display_driver_data *vdd)
 
 int panic_on;
 
+void self_mask_img_write(struct mdss_dsi_ctrl_pdata *ctrl)
+{
+	LCD_ERR("++\n");
+	mdss_samsung_send_cmd(ctrl, TX_LEVEL1_KEY_ENABLE);
+	mdss_samsung_send_cmd(ctrl, TX_SELF_MASK_SIDE_MEM_SET);
+	mdss_samsung_send_cmd(ctrl, TX_SELF_MASK_IMAGE);
+	mdss_samsung_send_cmd(ctrl, TX_LEVEL1_KEY_DISABLE);
+	LCD_ERR("--\n");
+}
+
 void ss_self_mask_on(struct mdss_dsi_ctrl_pdata *ctrl, int enable)
 {
 	struct samsung_display_driver_data *vdd = samsung_get_vdd();
@@ -828,10 +837,6 @@ void ss_self_mask_on(struct mdss_dsi_ctrl_pdata *ctrl, int enable)
 	mutex_lock(&vdd->self_disp.vdd_self_mask_lock);
 
 	if (enable) {
-		mdss_samsung_send_cmd(ctrl, TX_LEVEL1_KEY_ENABLE);
-		mdss_samsung_send_cmd(ctrl, TX_SELF_MASK_SIDE_MEM_SET);
-		mdss_samsung_send_cmd(ctrl, TX_SELF_MASK_IMAGE);
-		mdss_samsung_send_cmd(ctrl, TX_LEVEL1_KEY_DISABLE);
 		mdss_samsung_send_cmd(ctrl, TX_SELF_MASK_ON);
 
 #ifdef SELF_DISPLAY_DEBUG

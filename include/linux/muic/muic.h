@@ -201,9 +201,7 @@ typedef enum {
 	ATTACHED_DEV_JIG_UART_ON_VB_MUIC,	/* VBUS enabled */
 	ATTACHED_DEV_TIMEOUT_OPEN_MUIC,
 	ATTACHED_DEV_WIRELESS_PAD_MUIC,
-#if defined(CONFIG_SEC_FACTORY)
 	ATTACHED_DEV_CARKIT_MUIC,
-#endif
 	ATTACHED_DEV_POWERPACK_MUIC,
 	/* 71 */
 	ATTACHED_DEV_UNDEFINED_RANGE_MUIC,
@@ -264,6 +262,7 @@ struct muic_platform_data {
 	bool afc_disable;
 	bool is_new_factory;
 	bool dcd_timeout;
+	bool undefined_range;
 
 #if defined(CONFIG_MUIC_UART_SWITCH)
 	/* for the modAP */

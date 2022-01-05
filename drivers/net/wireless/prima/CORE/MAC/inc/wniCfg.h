@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -773,7 +773,7 @@ enum {
 
 #define WNI_CFG_PROBE_AFTER_HB_FAIL_TIMEOUT_STAMIN    10
 #define WNI_CFG_PROBE_AFTER_HB_FAIL_TIMEOUT_STAMAX    10000
-#define WNI_CFG_PROBE_AFTER_HB_FAIL_TIMEOUT_STADEF    200
+#define WNI_CFG_PROBE_AFTER_HB_FAIL_TIMEOUT_STADEF    70
 
 #define WNI_CFG_11D_ENABLED_STAMIN    0
 #define WNI_CFG_11D_ENABLED_STAMAX    1
@@ -1951,6 +1951,7 @@ enum {
 #define WNI_CFG_TRIGGER_NULLFRAME_BEFORE_HB_MAX 1
 #define WNI_CFG_TRIGGER_NULLFRAME_BEFORE_HB_DEF 0
 
+/* QWLAN_HAL_CFG_ENABLE_POWERSAVE_OFFLOAD */
 #define WNI_CFG_ENABLE_POWERSAVE_OFFLOAD_MIN  1
 #define WNI_CFG_ENABLE_POWERSAVE_OFFLOAD_MAX  2
 #define WNI_CFG_ENABLE_POWERSAVE_OFFLOAD_DEF  1
@@ -1970,6 +1971,7 @@ enum {
 #define WNI_CFG_BTC_2M_DYN_LONG_NUM_BT_EXT_MIN 5
 #define WNI_CFG_BTC_2M_DYN_LONG_NUM_BT_EXT_MAX 15
 #define WNI_CFG_BTC_2M_DYN_LONG_NUM_BT_EXT_DEF 15
+
 
 #define CFG_PARAM_MAX_NUM        369
 #define CFG_STA_IBUF_MAX_SIZE    303

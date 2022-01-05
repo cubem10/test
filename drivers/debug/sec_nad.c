@@ -334,7 +334,21 @@ static ssize_t store_nad_acat(struct device *dev,
 
 	if (!strncmp(buf, "nad_acat", 8)) {
 		// checking 1st boot and setting test count
-		if (param_qnad_data.magic != NAD_SMD_MAGIC) {	// <======================== 1st boot at right after SMD D/L done
+		if (param_qnad_data.magic != NAD_SMD_MAGIC)	// <======================== 1st boot at right after SMD D/L done
+#ifdef CONFIG_SEC_NOTSUPPORTED_HLOSNAD
+		{
+			NAD_PRINT("setting magic code on not supported arch\n");
+			param_qnad_data.magic = NAD_SMD_MAGIC;
+
+			if (!sec_set_param(param_index_qnad, &param_qnad_data)) {
+				pr_err
+				    ("%s : fail - set param!! param_qnad_data\n",
+				     __func__);
+				goto err_out;
+			}
+		}
+#else
+		{
 			nad_test_mode = SMD_NAD;
 			NAD_PRINT("1st boot at SMD\n");
 			param_qnad_data.magic = NAD_SMD_MAGIC;
@@ -350,7 +364,9 @@ static ssize_t store_nad_acat(struct device *dev,
 			}
 			curr_smd = nad_test_mode;
 			do_nad(nad_test_mode);
-		} else {		//  <========================not SMD, it can be LCIA, CAL, FINAL and 15 ACAT.
+		} else
+#endif
+		{		//  <========================not SMD, it can be LCIA, CAL, FINAL and 15 ACAT.
 			nad_test_mode = ETC_NAD;
 			ret = sscanf(nad_cmd[1], "%d\n", &nad_loop_count);
 			if (ret != 1)

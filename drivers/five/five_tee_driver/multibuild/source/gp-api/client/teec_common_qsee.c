@@ -5,21 +5,21 @@
  * PROPRIETARY/CONFIDENTIAL
  *
  * This software is the confidential and proprietary information of
- * SAMSUNG ELECTRONICS ("Confidential Information"). 
+ * SAMSUNG ELECTRONICS ("Confidential Information").
  * You shall not disclose such Confidential Information and shall
  * use it only in accordance with the terms of the license agreement
  * you entered into with SAMSUNG ELECTRONICS.  SAMSUNG make no
  * representations or warranties about the suitability
  * of the software, either express or implied, including but not
  * limited to the implied warranties of merchantability, fitness for
- * a particular purpose, or non-infringement. 
+ * a particular purpose, or non-infringement.
  * SAMSUNG shall not be liable for any damages suffered by licensee as
  * a result of using, modifying or distributing this software or its derivatives.
  *
  * ======================================================
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2.
- * 
+ *
  *
  *  Copyright (c) 2015-2016 Samsung Electronics Co., Ltd.
  *
@@ -32,10 +32,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
 #include <linux/string.h>
@@ -91,7 +87,7 @@ static TEEC_Result TeecUuidToQseeUuid(const TEEC_UUID *uuid, char *qsee_uuid)
 	qsee_uuid[i++] = (uuid->timeHiAndVersion & 0xFF00) >> 8;
 	qsee_uuid[i++] = (uuid->timeHiAndVersion & 0xFF);
 
-	for (j = 0; j < sizeof(uuid->clockSeqAndNode); j++)
+	for (j = 0; j < (uint32_t)sizeof(uuid->clockSeqAndNode); j++)
 		qsee_uuid[i++] = uuid->clockSeqAndNode[j];
 
 exit:
@@ -206,8 +202,11 @@ TEEC_Result QseeSendCommand(void *ta_session,
 			   RBUF_LEN);
 
 	if (qsee_res != QSEE_SUCCESS) {
-		ret = qsee_res == -EINVAL ?  TEEC_ERROR_TARGET_DEAD :
+		if (qsee_res != -EPERM)
+			ret = qsee_res == -EINVAL ?  TEEC_ERROR_TARGET_DEAD :
 						      TEEC_ERROR_COMMUNICATION;
+		else
+			ret = TEEC_ERROR_ACCESS_DENIED;
 		goto exit;
 	}
 

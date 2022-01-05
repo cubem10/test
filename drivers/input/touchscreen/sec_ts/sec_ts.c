@@ -803,25 +803,29 @@ int sec_ts_wait_for_ready(struct sec_ts_data *ts, unsigned int ack)
 	int retry = 0;
 	u8 tBuff[SEC_TS_EVENT_BUFF_SIZE] = {0,};
 
-	while (sec_ts_i2c_read(ts, SEC_TS_READ_ONE_EVENT, tBuff, SEC_TS_EVENT_BUFF_SIZE) > 0) {
-		if (((tBuff[0] >> 2) & 0xF) == TYPE_STATUS_EVENT_INFO) {
-			if (tBuff[1] == ack) {
-				rc = 0;
-				break;
+	while (retry <= SEC_TS_WAIT_RETRY_CNT) {
+		if (gpio_get_value(ts->plat_data->irq_gpio) == 0) {
+			input_info(true, &ts->client->dev, "%s: irq_gpio==0\n", __func__);
+			if (sec_ts_i2c_read(ts, SEC_TS_READ_ONE_EVENT, tBuff, SEC_TS_EVENT_BUFF_SIZE) > 0) {
+				if (((tBuff[0] >> 2) & 0xF) == TYPE_STATUS_EVENT_INFO) {
+					if (tBuff[1] == ack) {
+						rc = 0;
+						break;
+					}
+				} else if (((tBuff[0] >> 2) & 0xF) == TYPE_STATUS_EVENT_VENDOR_INFO) {
+					if (tBuff[1] == ack) {
+						rc = 0;
+						break;
+					}
+				}
 			}
-		} else if (((tBuff[0] >> 2) & 0xF) == TYPE_STATUS_EVENT_VENDOR_INFO) {
-			if (tBuff[1] == ack) {
-				rc = 0;
-				break;
-			}
-		}
-
-		if (retry++ > SEC_TS_WAIT_RETRY_CNT) {
-			input_err(true, &ts->client->dev, "%s: Time Over\n", __func__);
-			break;
 		}
 		sec_ts_delay(20);
+		retry++;
 	}
+
+	if (retry > SEC_TS_WAIT_RETRY_CNT)
+		input_err(true, &ts->client->dev, "%s: Time Over\n", __func__);
 
 	input_info(true, &ts->client->dev,
 			"%s: %02X, %02X, %02X, %02X, %02X, %02X, %02X, %02X [%d]\n",
@@ -1208,7 +1212,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 
 #if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 						input_info(true, &ts->client->dev,
-								"%s[R] tID:%d mc:%d tc:%d lx:%d ly:%d f:%d v:%02X%02X cal:%02X(%02X) id(%d,%d) p:%d noise:%x lp:(%x/%d) C%02XT%04X.%4s%s F%02X%02X D%05X\n",
+								"%s[R] tID:%d mc:%d tc:%d lx:%d ly:%d f:%d v:%02X%02X cal:%02X(%02X) id(%d,%d) p:%d noise:%x lp:(%x/%d) C%02XT01%02X.%4s%s F%02X%02X D%05X\n",
 								ts->dex_name,
 								t_id, ts->coord[t_id].mcount, ts->touch_count,
 								ts->coord[t_id].x, ts->coord[t_id].y, max_force_p,
@@ -1225,7 +1229,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 								ts->defect_probability);
 #else
 						input_info(true, &ts->client->dev,
-								"%s[R] tID:%d mc:%d tc:%d f:%d v:%02X%02X cal:%02X(%02X) id(%d,%d) p:%d noise:%x lp:(%x/%d) C%02XT%04X.%4s%s F%02X%02X D%05X\n",
+								"%s[R] tID:%d mc:%d tc:%d f:%d v:%02X%02X cal:%02X(%02X) id(%d,%d) p:%d noise:%x lp:(%x/%d) C%02XT01%02X.%4s%s F%02X%02X D%05X\n",
 								ts->dex_name,
 								t_id, ts->coord[t_id].mcount, ts->touch_count,
 								max_force_p, ts->plat_data->img_version_of_ic[2],
@@ -1376,6 +1380,20 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 #endif
 				input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 1);
 				ts->all_aod_tap_count++;
+				break;
+			case SEC_TS_GESTURE_CODE_SINGLE_TAP:
+				ts->scrub_id = SPONGE_EVENT_TYPE_SINGLE_TAP;
+				ts->scrub_x = (p_gesture_status->gesture_data_1 << 4)
+							| (p_gesture_status->gesture_data_3 >> 4);
+				ts->scrub_y = (p_gesture_status->gesture_data_2 << 4)
+							| (p_gesture_status->gesture_data_3 & 0x0F);
+#ifdef CONFIG_SAMSUNG_PRODUCT_SHIP
+				input_info(true, &ts->client->dev, "%s: SINGLE TAP: %d\n", __func__, ts->scrub_id);
+#else
+				input_info(true, &ts->client->dev, "%s: SINGLE TAP: %d, %d, %d\n",
+						__func__, ts->scrub_id, ts->scrub_x, ts->scrub_y);
+#endif
+				input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 1);
 				break;
 			case SEC_TS_GESTURE_CODE_FORCE:
 				if (ts->power_status == SEC_TS_STATE_POWER_ON) {
@@ -2568,7 +2586,7 @@ void sec_ts_locked_release_all_finger(struct sec_ts_data *ts)
 
 			ts->coord[i].action = SEC_TS_COORDINATE_ACTION_RELEASE;
 			input_info(true, &ts->client->dev,
-					"%s: [RA] tID:%d mc: %d tc:%d, v:%02X%02X, cal:%X(%X) C%02XT%04X.%4s%s id(%d,%d), p:%d, D%05X\n",
+					"%s: [RA] tID:%d mc: %d tc:%d, v:%02X%02X, cal:%X(%X) C%02XT01%02X.%4s%s id(%d,%d), p:%d, D%05X\n",
 					__func__, i, ts->coord[i].mcount, ts->touch_count,
 					ts->plat_data->img_version_of_ic[2],
 					ts->plat_data->img_version_of_ic[3],
@@ -2892,18 +2910,23 @@ static void sec_ts_input_close(struct input_dev *dev)
 
 	ts->pressure_setting_mode = 0;
 
-	if (ts->lowpower_mode) {
-		int ret;
-
-		ret = sec_ts_set_lowpowermode(ts, TO_LOWPOWER_MODE);
-		if (ts->reset_is_on_going && (ret < 0)) {
-			input_err(true, &ts->client->dev, "%s: failed to reset, ret:%d\n", __func__, ret);
-			ts->reset_is_on_going = false;
-			schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
-		}
-	} else {
+	if (ts->prox_power_off) {
 		sec_ts_stop_device(ts);
+	} else {
+		if (ts->lowpower_mode) {
+			int ret;
+			ret = sec_ts_set_lowpowermode(ts, TO_LOWPOWER_MODE);
+			if (ts->reset_is_on_going && (ret < 0)) {
+				input_err(true, &ts->client->dev, "%s: failed to reset, ret:%d\n", __func__, ret);
+				ts->reset_is_on_going = false;
+				schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
+			}
+		} else {
+			sec_ts_stop_device(ts);
+		}
 	}
+
+	ts->prox_power_off = 0;
 }
 #endif
 

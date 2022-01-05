@@ -384,7 +384,7 @@ config SENSORS_APDS990X
 
 config TIMA_LOG
 	tristate "Support for dumping TIMA log"
-	default y
+	default n
 	help
 	  This option enables support for dumping TIMA log
 
@@ -557,6 +557,12 @@ config QSEECOM
           Manager (SCM) interface. It exposes APIs for both userspace and
           kernel clients.
 
+config QSEECOM_DEBUG
+        bool "QTI Secure Execution Communicator driver debug"
+	default	n
+        help
+          QTI Secure Execution Communicator driver debug		  
+
 config HDCP_QSEECOM
 	tristate "QTI High-Bandwidth Digital Content Protection Module"
 	help
@@ -584,7 +590,7 @@ config VEXPRESS_SYSCFG
 
 config UID_SYS_STATS
 	bool "Per-UID statistics"
-	depends on PROFILING
+	depends on PROFILING && TASK_XACCT && TASK_IO_ACCOUNTING
 	help
 	  Per UID based cpu time statistics exported to /proc/uid_cputime
 	  Per UID based io statistics exported to /proc/uid_io
@@ -669,4 +675,5 @@ source "drivers/misc/genwqe/Kconfig"
 source "drivers/misc/echo/Kconfig"
 source "drivers/misc/cxl/Kconfig"
 source "drivers/misc/bhy/Kconfig"
+source "drivers/misc/dev_ril_bridge/Kconfig"
 endmenu

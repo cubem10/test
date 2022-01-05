@@ -949,6 +949,35 @@ struct hdd_cache_sta_info *hdd_get_cache_stainfo(
                                           struct hdd_cache_sta_info *astainfo,
                                           u8 *mac_addr);
 
+/**
+ * wlansap_chk_n_set_chan_change_in_progress() -
+ * check if chan change is in progress and set it if not
+ *
+ * @sap_ctx: sap context
+ *
+ * Return: 0 if channel change is not in progress else error
+ */
+int wlansap_chk_n_set_chan_change_in_progress(ptSapContext sap_ctx);
+/**
+ * wlansap_reset_chan_change_in_progress() - reset channel change in progress
+ *
+ * @sap_ctx: sap context
+ *
+ * Return: 0 if channel change is reset else error
+ */
+int wlansap_reset_chan_change_in_progress(ptSapContext sap_ctx);
+
+/**
+ * wlansap_get_change_in_progress() - get channel change in progress
+ *
+ * @sap_ctx: sap context
+ *
+ * Return: true if channel change in progress else false
+ */
+bool wlansap_get_change_in_progress(ptSapContext sap_ctx);
+
+
+
 #ifdef __cplusplus
 }
 #endif 

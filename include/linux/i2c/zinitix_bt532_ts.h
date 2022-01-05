@@ -23,21 +23,30 @@
 
 #define BT532_TS_DEVICE		"bt532_ts_device"
 
-//#define TCLM_CONCEPT
+#ifdef CONFIG_INPUT_TOUCHSCREEN_TCLMV2
+#define TCLM_CONCEPT
+#endif
 
+#ifdef TCLM_CONCEPT
+#define BT532_TS_NVM_OFFSET_FAC_RESULT			0
+#define BT532_TS_NVM_OFFSET_DISASSEMBLE_COUNT		2
+
+#define BT532_TS_NVM_OFFSET_CAL_COUNT			4
+#define BT532_TS_NVM_OFFSET_TUNE_VERSION			5
+#define BT532_TS_NVM_OFFSET_CAL_POSITION			7
+#define BT532_TS_NVM_OFFSET_HISTORY_QUEUE_COUNT		8
+#define BT532_TS_NVM_OFFSET_HISTORY_QUEUE_LASTP		9
+#define BT532_TS_NVM_OFFSET_HISTORY_QUEUE_ZERO		10
+#define BT532_TS_NVM_OFFSET_HISTORY_QUEUE_SIZE		20
+
+#define BT532_TS_NVM_OFFSET_LENGTH		(BT532_TS_NVM_OFFSET_HISTORY_QUEUE_ZERO + BT532_TS_NVM_OFFSET_HISTORY_QUEUE_SIZE)
+
+#else
 #define BT532_TS_NVM_OFFSET_FAC_RESULT			0
 #define BT532_TS_NVM_OFFSET_CAL_COUNT			2
 #define BT532_TS_NVM_OFFSET_TUNE_VERSION			4
 #define BT532_TS_NVM_OFFSET_TUNE_VERSION_LENGTH		2
 
-/*
- * bit value should be made a promise with InputFramework.
- *	bit	: feature
- *	0	: AOT -Doubletap wakeup in whole screen when LCD off.
- */
-#define INPUT_FEATURE_SUPPORT_AOT		(1 << 0)
-
-/* TCLM_CONCEPT */
 #define BT532_TS_NVM_OFFSET_CAL_POSITION			10
 #define BT532_TS_NVM_OFFSET_HISTORY_QUEUE_COUNT		12
 #define BT532_TS_NVM_OFFSET_HISTORY_QUEUE_LASTP		14
@@ -45,6 +54,14 @@
 #define BT532_TS_NVM_OFFSET_HISTORY_QUEUE_SIZE		20
 
 #define BT532_TS_NVM_OFFSET_DISASSEMBLE_COUNT		38
+#endif
+
+/*
+ * bit value should be made a promise with InputFramework.
+ *	bit	: feature
+ *	0	: AOT -Doubletap wakeup in whole screen when LCD off.
+ */
+#define INPUT_FEATURE_SUPPORT_AOT		(1 << 0)
 
 #ifdef CONFIG_SEC_DEBUG_TSP_LOG
 #include <linux/sec_debug.h>
@@ -125,9 +142,13 @@ struct bt532_ts_platform_data {
 	u32		gpio_scl;
 	u32		gpio_sda;
 	u32		gpio_ldo_en;
-	int		(*tsp_power)(void *data, bool on);
+	int		gpio_vdd;
+	int 		(*tsp_power)(void *data, bool on);
 	u16		x_resolution;
 	u16		y_resolution;
+	u8		area_indicator;
+	u8		area_navigation;
+	u8		area_edge;
 	u16		page_size;
 	u8		orientation;
 	bool		support_touchkey;
@@ -138,7 +159,7 @@ struct bt532_ts_platform_data {
 	bool		bringup;
 	bool		mis_cal_check;
 	u16 		pat_function;
-	u16 		afe_base;	
+	u16 		afe_base;
 	const char *project_name;
 	void (*register_cb)(void *);
 
@@ -156,3 +177,4 @@ extern struct class *sec_class;
 void tsp_charger_infom(bool en);
 
 #endif /* LINUX_BT532_TS_H */
+

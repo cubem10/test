@@ -305,8 +305,7 @@ static const char * const fw_path[] = {
 	"/lib/firmware",
 	"/lib64/firmware",
 	"/lib/firmware/image",
-	"/firmware/image",
-	"/firmware-modem/image"
+	"/firmware/image"
 };
 
 /*

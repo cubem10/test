@@ -3038,6 +3038,12 @@ static int dsi_event_thread(void *data)
 		if (todo & DSI_EV_MDP_BUSY_RELEASE) {
 			pr_debug("%s: Handling MDP_BUSY_RELEASE event\n",
 							__func__);
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)/*CONFIG_DISPLAY_USE_INFO*/
+			inc_dpui_u32_field(DPUI_KEY_QCT_DSIE, 1);
+#ifdef CONFIG_DISPLAY_USE_INFO
+			samsung_get_vdd()->dsi_errors = todo;
+#endif
+#endif
 			spin_lock_irqsave(&ctrl->mdp_lock, flag);
 			ctrl->mdp_busy = false;
 			mdss_dsi_disable_irq_nosync(ctrl, DSI_MDP_TERM);

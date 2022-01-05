@@ -67,5 +67,5 @@ int isl98611_backlight_data_parse(struct device *dev,
 			struct blic_message *input, char *keystring);
 int isl98611_backlight_parse_dt(struct device *dev,
 			struct isl98611_backlight_platform_data *pdata);
-int isl98611_backlight_pwm_power(struct mdss_dsi_ctrl_pdata *ctrl, int enable);
+void isl98611_backlight_pwm_power(int enable);
 int isl98611_backlight_power(struct mdss_dsi_ctrl_pdata *ctrl, int enable);

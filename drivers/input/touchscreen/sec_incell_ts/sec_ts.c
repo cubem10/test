@@ -14,6 +14,15 @@ struct sec_ts_data *tsp_info;
 
 #include "sec_ts.h"
 
+#ifdef CONFIG_SECURE_TOUCH
+enum subsystem {
+	TZ = 1,
+	APSS = 3
+};
+
+#define TZ_BLSP_MODIFY_OWNERSHIP_ID 3
+#endif
+
 struct sec_ts_data *ts_dup;
 
 static void sec_ts_read_info_work(struct work_struct *work);
@@ -26,6 +35,366 @@ static void sec_ts_input_close(struct input_dev *dev);
 #ifdef CONFIG_FB
 static int sec_ts_fb_notifier_cb(struct notifier_block *nb, unsigned long event,
 					void *data);
+#endif
+
+#ifdef CONFIG_SECURE_TOUCH
+static int sec_ts_change_pipe_owner(struct sec_ts_data *ts, enum subsystem subsystem)
+{
+	/* scm call disciptor */
+	struct scm_desc desc;
+	int ret = 0;
+
+	/* number of arguments */
+	desc.arginfo = SCM_ARGS(2);
+	/* BLSPID (1 - 12) */
+	desc.args[0] = (u64)(ts->client->adapter->nr) - 1;
+	/* Owner if TZ or APSS */
+	desc.args[1] = subsystem;
+
+	ret = scm_call2(SCM_SIP_FNID(SCM_SVC_TZ, TZ_BLSP_MODIFY_OWNERSHIP_ID), &desc);
+	if (ret) {
+		input_err(true, &ts->client->dev, "%s: ret: %d\n", __func__, ret);
+		return ret;
+	}
+
+	input_dbg(true, &ts->client->dev, "%s: return: %llu\n", __func__, desc.ret[0]);
+
+	return desc.ret[0];
+}
+
+static irqreturn_t sec_ts_irq_thread(int irq, void *ptr);
+
+static irqreturn_t secure_filter_interrupt(struct sec_ts_data *ts)
+{
+	if (atomic_read(&ts->secure_enabled) == SECURE_TOUCH_ENABLE) {
+		if (atomic_cmpxchg(&ts->secure_pending_irqs, 0, 1) == 0) {
+			sysfs_notify(&ts->input_dev->dev.kobj, NULL, "secure_touch");
+
+#if defined(CONFIG_TRUSTONIC_TRUSTED_UI) || defined(CONFIG_TRUSTONIC_TRUSTED_UI_QC)
+			complete(&ts->st_irq_received);
+#endif
+		} else {
+			input_info(true, &ts->client->dev, "%s: pending irq:%d\n",
+					__func__, (int)atomic_read(&ts->secure_pending_irqs));
+		}
+
+		return IRQ_HANDLED;
+	}
+
+	return IRQ_NONE;
+}
+
+static int secure_touch_clk_prepare_enable(struct sec_ts_data *ts)
+{
+	int ret;
+
+	if (!ts->core_clk || !ts->iface_clk) {
+		input_err(true, &ts->client->dev, "%s: error clk\n", __func__);
+		return -ENODEV;
+	}
+
+	ret = clk_prepare_enable(ts->core_clk);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev, "%s: failed core clk\n", __func__);
+		goto err_core_clk;
+	}
+
+	ret = clk_prepare_enable(ts->iface_clk);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev, "%s: failed iface clk\n", __func__);
+		goto err_iface_clk;
+	}
+
+	return 0;
+
+err_iface_clk:
+	clk_disable_unprepare(ts->core_clk);
+err_core_clk:
+	return -ENODEV;
+}
+
+static void secure_touch_clk_unprepare_disable(struct sec_ts_data *ts)
+{
+	if (!ts->core_clk || !ts->iface_clk) {
+		input_err(true, &ts->client->dev, "%s: error clk\n", __func__);
+		return;
+	}
+
+	clk_disable_unprepare(ts->core_clk);
+	clk_disable_unprepare(ts->iface_clk);
+}
+
+/**
+ * Sysfs attr group for secure touch & interrupt handler for Secure world.
+ * @atomic : syncronization for secure_enabled
+ * @pm_runtime : set rpm_resume or rpm_ilde
+ */
+static ssize_t secure_touch_enable_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct sec_ts_data *ts = dev_get_drvdata(dev);
+
+	return snprintf(buf, PAGE_SIZE, "%d", atomic_read(&ts->secure_enabled));
+}
+
+static ssize_t secure_touch_enable_store(struct device *dev,
+		struct device_attribute *addr, const char *buf, size_t count)
+{
+	struct sec_ts_data *ts = dev_get_drvdata(dev);
+	int ret;
+	unsigned long data;
+
+	if (count > 2) {
+		input_err(true, &ts->client->dev,
+				"%s: cmd length is over (%s,%d)!!\n",
+				__func__, buf, (int)strlen(buf));
+		return -EINVAL;
+	}
+
+	ret = kstrtoul(buf, 10, &data);
+	if (ret != 0) {
+		input_err(true, &ts->client->dev, "%s: failed to read:%d\n",
+				__func__, ret);
+		return -EINVAL;
+	}
+
+	if (data == 1) {
+		/* Enable Secure World */
+		if (atomic_read(&ts->secure_enabled) == SECURE_TOUCH_ENABLE) {
+			input_err(true, &ts->client->dev, "%s: already enabled\n", __func__);
+			return -EBUSY;
+		}
+
+		/* syncronize_irq -> disable_irq + enable_irq
+		 * concern about timing issue.
+		 */
+		disable_irq(ts->client->irq);
+
+		/* Fix normal active mode : idle mode is failed to i2c for 1 time */
+		ret = sec_ts_fix_tmode(ts, TOUCH_SYSTEM_MODE_TOUCH, TOUCH_MODE_STATE_TOUCH);
+		if (ret < 0) {
+			enable_irq(ts->client->irq);
+			input_err(true, &ts->client->dev, "%s: failed to fix tmode\n",
+					__func__);
+			return -EIO;
+		}
+
+		/* Release All Finger */
+		sec_ts_unlocked_release_all_finger(ts);
+
+		if (pm_runtime_get_sync(ts->client->adapter->dev.parent) < 0) {
+			enable_irq(ts->client->irq);
+			input_err(true, &ts->client->dev, "%s: failed to get pm_runtime\n", __func__);
+			return -EIO;
+		}
+
+		if (secure_touch_clk_prepare_enable(ts) < 0) {
+			pm_runtime_put_sync(ts->client->adapter->dev.parent);
+			enable_irq(ts->client->irq);
+			input_err(true, &ts->client->dev, "%s: failed to clk enable\n", __func__);
+			return -ENXIO;
+		}
+
+		sec_ts_change_pipe_owner(ts, TZ);
+
+		reinit_completion(&ts->secure_powerdown);
+		reinit_completion(&ts->secure_interrupt);
+#if defined(CONFIG_TRUSTONIC_TRUSTED_UI) || defined(CONFIG_TRUSTONIC_TRUSTED_UI_QC)
+		reinit_completion(&ts->st_irq_received);
+#endif
+		atomic_set(&ts->secure_enabled, 1);
+		atomic_set(&ts->secure_pending_irqs, 0);
+
+		enable_irq(ts->client->irq);
+
+		input_info(true, &ts->client->dev, "%s: secure touch enable\n", __func__);
+	} else if (data == 0) {
+		/* Disable Secure World */
+		if (atomic_read(&ts->secure_enabled) == SECURE_TOUCH_DISABLE) {
+			input_err(true, &ts->client->dev, "%s: already disabled\n", __func__);
+			return count;
+		}
+
+		sec_ts_change_pipe_owner(ts, APSS);
+
+		secure_touch_clk_unprepare_disable(ts);
+		pm_runtime_put_sync(ts->client->adapter->dev.parent);
+		atomic_set(&ts->secure_enabled, 0);
+
+		sysfs_notify(&ts->input_dev->dev.kobj, NULL, "secure_touch");
+
+		sec_ts_delay(10);
+
+		sec_ts_irq_thread(ts->client->irq, ts);
+		complete(&ts->secure_interrupt);
+		complete(&ts->secure_powerdown);
+#if defined(CONFIG_TRUSTONIC_TRUSTED_UI) || defined(CONFIG_TRUSTONIC_TRUSTED_UI_QC)
+		complete(&ts->st_irq_received);
+#endif
+
+		input_info(true, &ts->client->dev, "%s: secure touch disable\n", __func__);
+
+		ret = sec_ts_release_tmode(ts);
+		if (ret < 0) {
+			input_err(true, &ts->client->dev, "%s: failed to release tmode\n",
+					__func__);
+			return -EIO;
+		}
+
+	} else {
+		input_err(true, &ts->client->dev, "%s: unsupport value:%d\n", __func__, data);
+		return -EINVAL;
+	}
+
+	return count;
+}
+
+#if defined(CONFIG_TRUSTONIC_TRUSTED_UI) || defined(CONFIG_TRUSTONIC_TRUSTED_UI_QC)
+static int secure_get_irq(struct device *dev)
+{
+	struct sec_ts_data *ts = dev_get_drvdata(dev);
+	int val = 0;
+
+	if (atomic_read(&ts->secure_enabled) == SECURE_TOUCH_DISABLE) {
+		input_err(true, &ts->client->dev, "%s: disabled\n", __func__);
+		return -EBADF;
+	}
+
+	if (atomic_cmpxchg(&ts->secure_pending_irqs, -1, 0) == -1) {
+		input_err(true, &ts->client->dev, "%s: pending irq -1\n", __func__);
+		return -EINVAL;
+	}
+
+	if (atomic_cmpxchg(&ts->secure_pending_irqs, 1, 0) == 1)
+		val = 1;
+
+	input_err(true, &ts->client->dev, "%s: pending irq is %d\n",
+			__func__, atomic_read(&ts->secure_pending_irqs));
+
+	complete(&ts->secure_interrupt);
+
+	return val;
+}
+#endif
+
+static ssize_t secure_touch_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct sec_ts_data *ts = dev_get_drvdata(dev);
+	int val = 0;
+
+	if (atomic_read(&ts->secure_enabled) == SECURE_TOUCH_DISABLE) {
+		input_err(true, &ts->client->dev, "%s: disabled\n", __func__);
+		return -EBADF;
+	}
+
+	if (atomic_cmpxchg(&ts->secure_pending_irqs, -1, 0) == -1) {
+		input_err(true, &ts->client->dev, "%s: pending irq -1\n", __func__);
+		return -EINVAL;
+	}
+
+	if (atomic_cmpxchg(&ts->secure_pending_irqs, 1, 0) == 1)
+		val = 1;
+
+	input_err(true, &ts->client->dev, "%s: pending irq is %d\n",
+			__func__, atomic_read(&ts->secure_pending_irqs));
+
+	complete(&ts->secure_interrupt);
+
+	return snprintf(buf, PAGE_SIZE, "%u", val);
+}
+
+static ssize_t secure_ownership_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "1");
+}
+
+static DEVICE_ATTR(secure_touch_enable, (S_IRUGO | S_IWUSR | S_IWGRP),
+		secure_touch_enable_show, secure_touch_enable_store);
+static DEVICE_ATTR(secure_touch, S_IRUGO, secure_touch_show, NULL);
+
+static DEVICE_ATTR(secure_ownership, S_IRUGO, secure_ownership_show, NULL);
+
+static struct attribute *secure_attr[] = {
+	&dev_attr_secure_touch_enable.attr,
+	&dev_attr_secure_touch.attr,
+	&dev_attr_secure_ownership.attr,
+	NULL,
+};
+
+static struct attribute_group secure_attr_group = {
+	.attrs = secure_attr,
+};
+
+
+static int secure_touch_init(struct sec_ts_data *ts)
+{
+	input_info(true, &ts->client->dev, "%s\n", __func__);
+
+	init_completion(&ts->secure_interrupt);
+	init_completion(&ts->secure_powerdown);
+#if defined(CONFIG_TRUSTONIC_TRUSTED_UI) || defined(CONFIG_TRUSTONIC_TRUSTED_UI_QC)
+	init_completion(&ts->st_irq_received);
+#endif
+
+	ts->core_clk = clk_get(&ts->client->adapter->dev, "core_clk");
+	if (IS_ERR_OR_NULL(ts->core_clk)) {
+		input_err(true, &ts->client->dev, "%s: failed to get core_clk: %ld\n",
+				__func__, PTR_ERR(ts->core_clk));
+		goto err_core_clk;
+	}
+
+	ts->iface_clk = clk_get(&ts->client->adapter->dev, "iface_clk");
+	if (IS_ERR_OR_NULL(ts->iface_clk)) {
+		input_err(true, &ts->client->dev, "%s: failed to get iface_clk: %ld\n",
+				__func__, PTR_ERR(ts->iface_clk));
+		goto err_iface_clk;
+	}
+
+#if defined(CONFIG_TRUSTONIC_TRUSTED_UI) || defined(CONFIG_TRUSTONIC_TRUSTED_UI_QC)
+	register_tui_hal_ts(&ts->input_dev->dev, &ts->secure_enabled,
+			&ts->st_irq_received, secure_get_irq,
+			secure_touch_enable_store);
+#endif
+
+	return 0;
+
+err_iface_clk:
+	clk_put(ts->core_clk);
+err_core_clk:
+	ts->core_clk = NULL;
+	ts->iface_clk = NULL;
+
+	return -ENODEV;
+}
+
+static void secure_touch_remove(struct sec_ts_data *ts)
+{
+	if (!IS_ERR_OR_NULL(ts->core_clk))
+		clk_put(ts->core_clk);
+
+	if (!IS_ERR_OR_NULL(ts->iface_clk))
+		clk_put(ts->iface_clk);
+}
+
+static void secure_touch_stop(struct sec_ts_data *ts, bool stop)
+{
+	if (atomic_read(&ts->secure_enabled)) {
+		atomic_set(&ts->secure_pending_irqs, -1);
+
+		sysfs_notify(&ts->input_dev->dev.kobj, NULL, "secure_touch");
+
+#if defined(CONFIG_TRUSTONIC_TRUSTED_UI) || defined(CONFIG_TRUSTONIC_TRUSTED_UI_QC)
+		complete(&ts->st_irq_received);
+#endif
+
+		if (stop)
+			wait_for_completion_interruptible(&ts->secure_powerdown);
+
+		input_info(true, &ts->client->dev, "%s: %d\n", __func__, stop);
+	}
+}
 #endif
 
 int sec_ts_read_information(struct sec_ts_data *ts);
@@ -48,6 +417,13 @@ int sec_ts_i2c_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 		goto err;
 	}
 
+#ifdef CONFIG_SECURE_TOUCH
+	if (atomic_read(&ts->secure_enabled) == SECURE_TOUCH_ENABLE) {
+		input_err(true, &ts->client->dev,
+				"%s: TSP no accessible from Linux, TUI is enabled!\n", __func__);
+		return -EBUSY;
+	}
+#endif
 	buf[0] = reg;
 	memcpy(buf + 1, data, len);
 
@@ -111,6 +487,13 @@ int sec_ts_i2c_read(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 		goto err;
 	}
 
+#ifdef CONFIG_SECURE_TOUCH
+	if (atomic_read(&ts->secure_enabled) == SECURE_TOUCH_ENABLE) {
+		input_err(true, &ts->client->dev,
+				"%s: TSP no accessible from Linux, TUI is enabled!\n", __func__);
+		return -EBUSY;
+	}
+#endif
 	buf[0] = reg;
 
 	msg[0].addr = ts->client->addr;
@@ -227,6 +610,13 @@ static int sec_ts_i2c_write_burst(struct sec_ts_data *ts, u8 *data, int len)
 	int retry;
 	int i;
 
+#ifdef CONFIG_SECURE_TOUCH
+	if (atomic_read(&ts->secure_enabled) == SECURE_TOUCH_ENABLE) {
+		input_err(true, &ts->client->dev,
+				"%s: TSP no accessible from Linux, TUI is enabled\n", __func__);
+		return -EBUSY;
+	}
+#endif
 	mutex_lock(&ts->i2c_mutex);
 	for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
 		ret = i2c_master_send(ts->client, data, len);
@@ -265,6 +655,13 @@ static int sec_ts_i2c_read_bulk(struct sec_ts_data *ts, u8 *data, int len)
 	int i = 0;
 	struct i2c_msg msg;
 
+#ifdef CONFIG_SECURE_TOUCH
+	if (atomic_read(&ts->secure_enabled) == SECURE_TOUCH_ENABLE) {
+		input_err(true, &ts->client->dev,
+				"%s: TSP no accessible from Linux, TUI is enabled\n", __func__);
+		return -EBUSY;
+	}
+#endif
 	msg.addr = ts->client->addr;
 	msg.flags = I2C_M_RD;
 	msg.len = len;
@@ -843,6 +1240,17 @@ static irqreturn_t sec_ts_irq_thread(int irq, void *ptr)
 {
 	struct sec_ts_data *ts = (struct sec_ts_data *)ptr;
 
+#ifdef CONFIG_SECURE_TOUCH
+	if (secure_filter_interrupt(ts) == IRQ_HANDLED) {
+		wait_for_completion_interruptible_timeout(&ts->secure_interrupt,
+				msecs_to_jiffies(5 * MSEC_PER_SEC));
+
+		input_info(true, &ts->client->dev,
+				"%s: secure interrupt handled\n", __func__);
+
+		return IRQ_HANDLED;
+	}
+#endif
 	mutex_lock(&ts->eventlock);
 
 	sec_ts_read_event(ts);
@@ -1320,6 +1728,17 @@ static void sec_ts_set_input_prop(struct sec_ts_data *ts, struct input_dev *dev,
 	input_set_drvdata(dev, ts);
 }
 
+static unsigned int boot_mode;
+static int __init setup_bootmode(char *str)
+{
+	if (get_option(&str, &boot_mode)) {
+		printk("%s: boot_mode is %u\n", __func__, boot_mode);
+		return 0;
+	}
+	return -EINVAL;
+}
+early_param("androidboot.boot_recovery", setup_bootmode);
+
 static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct sec_ts_data *ts;
@@ -1342,6 +1761,12 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		input_err(true, &client->dev, "%s: EIO err!\n", __func__);
 		return -EIO;
+	}
+
+	if (boot_mode == 1) {
+		input_err(true, &client->dev, "%s : Do not load driver due to : device entered recovery mode %d\n",
+			__func__, boot_mode);
+		return -ENODEV;
 	}
 
 	/* parse dt */
@@ -1509,11 +1934,7 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 			!valid_firmware_integrity)
 		force_update = true;
 	else
-#if defined(CONFIG_SEC_J4CORELTE_PROJECT) && defined(CONFIG_SEC_FACTORY)
-			force_update = true;
-#else
-			force_update = false;
-#endif
+		force_update = false;
 
 	ret = sec_ts_firmware_update_on_probe(ts, force_update);
 	if (ret < 0)
@@ -1611,6 +2032,12 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 
 	sec_ts_fn_init(ts);
 
+#ifdef CONFIG_SECURE_TOUCH
+	if (sysfs_create_group(&ts->input_dev->dev.kobj, &secure_attr_group) < 0)
+		input_err(true, &ts->client->dev, "%s: do not make secure group\n", __func__);
+	else
+		secure_touch_init(ts);
+#endif
 	device_init_wakeup(&client->dev, true);
 
 	schedule_delayed_work(&ts->work_read_info, msecs_to_jiffies(5000));
@@ -1622,6 +2049,7 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 #endif
 
 	ts_dup = ts;
+
 	ts->probe_done = true;
 
 	input_err(true, &ts->client->dev, "%s: done\n", __func__);
@@ -1837,7 +2265,10 @@ static int sec_ts_input_open(struct input_dev *dev)
 
 	ts->abc_err_flag = false;
 	ts->input_closed = false;
-
+	
+#ifdef CONFIG_SECURE_TOUCH
+	secure_touch_stop(ts, 0);
+#endif
 	input_info(true, &ts->client->dev, "%s\n", __func__);
 
 	ret = sec_ts_start_device(ts);
@@ -1873,6 +2304,9 @@ static void sec_ts_input_close(struct input_dev *dev)
 #endif
 #ifdef MINORITY_REPORT
 	minority_report_sync_latest_value(ts);
+#endif
+#ifdef CONFIG_SECURE_TOUCH
+	secure_touch_stop(ts, 1);
 #endif
 	sec_ts_stop_device(ts);
 
@@ -1943,14 +2377,13 @@ static int sec_ts_remove(struct i2c_client *client)
 	input_mt_destroy_slots(ts->input_dev);
 	input_unregister_device(ts->input_dev);
 
+#ifdef CONFIG_SECURE_TOUCH
+		secure_touch_remove(ts);
+#endif
 	ts->input_dev_pad = NULL;
 	ts->input_dev = NULL;
 	ts->input_dev_touch = NULL;
 	ts_dup = NULL;
-
-#ifdef CONFIG_TRUSTONIC_TRUSTED_UI
-	tsp_info = NULL;
-#endif
 
 	kfree(ts);
 	return 0;

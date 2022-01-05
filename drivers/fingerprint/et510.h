@@ -19,14 +19,11 @@
 #ifndef _ET510_LINUX_DIRVER_H_
 #define _ET510_LINUX_DIRVER_H_
 
-#ifdef ENABLE_SENSORS_FPRINT_SECURE
-#define FEATURE_SPI_WAKELOCK
-#endif /* CONFIG_SEC_FACTORY */
-
 #include <linux/module.h>
 #include <linux/spi/spi.h>
-#ifdef ENABLE_SENSORS_FPRINT_SECURE
+
 #include <linux/wakelock.h>
+#ifdef ENABLE_SENSORS_FPRINT_SECURE
 #include <linux/clk.h>
 #include <linux/pm_runtime.h>
 #include <linux/spi/spidev.h>
@@ -53,7 +50,7 @@
 #define CHIP_ID						"ET510"
 
 /* assigned */
-#define ET510_MAJOR					153
+#define ET510_MAJOR					152
 /* ... up to 256 */
 #define N_SPI_MINORS					32
 
@@ -102,15 +99,20 @@
 #define FP_NVM_WRITEEX					0x43
 
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
-#define FP_DIABLE_SPI_CLOCK				0x10
+#define FP_DISABLE_SPI_CLOCK			0x10
 #define FP_CPU_SPEEDUP					0x11
 #define FP_SET_SENSOR_TYPE				0x14
 /* Do not use ioctl number 0x15 */
 #define FP_SET_LOCKSCREEN				0x16
 #define FP_SET_WAKE_UP_SIGNAL				0x17
 #endif
-#define FP_POWER_CONTROL_ET510				0x18
-#define FP_IOCTL_RESERVED_01				0x19
+#define FP_POWER_CONTROL_ET510			0x18
+#define FP_SENSOR_ORIENT				0x19
+#define FP_SPI_VALUE					0x1a
+#define FP_IOCTL_RESERVED_01				0x1b
+#define FP_IOCTL_RESERVED_02				0x1c
+
+
 
 /* trigger signal initial routine */
 #define INT_TRIGGER_INIT				0xa4
@@ -131,7 +133,7 @@
 #define SHIFT_BYTE_OF_IMAGE 0
 #define DIVISION_OF_IMAGE 4
 #define LARGE_SPI_TRANSFER_BUFFER	64
-#define MAX_NVM_LEN 32 * 2 /* NVM length in bytes (32 * 16 bits internally)*/
+#define MAX_NVM_LEN (32 * 2) /* NVM length in bytes (32 * 16 bits internally) */
 #define NVM_WRITE_LENGTH 4096
 #define DETECT_ADM 1
 
@@ -164,9 +166,9 @@ struct etspi_data {
 
 	/* buffer is NULL unless this device is open (users > 0) */
 	struct mutex buf_lock;
-	unsigned users;
+	unsigned int users;
 	u8 *buf;/* tx buffer for sensor register read/write */
-	unsigned bufsiz; /* MAX size of tx and rx buffer */
+	unsigned int bufsiz; /* MAX size of tx and rx buffer */
 	unsigned int ocp_en;	/* ocp enable GPIO pin number */
 	unsigned int drdyPin;	/* DRDY GPIO pin number */
 	unsigned int sleepPin;	/* Sleep GPIO pin number */
@@ -187,20 +189,22 @@ struct etspi_data {
 	struct workqueue_struct *wq_dbg;
 	struct timer_list dbg_timer;
 	int sensortype;
+	u32 spi_value;
 #ifdef CONFIG_SENSORS_FINGERPRINT_SYSFS
 	struct device *fp_device;
 #endif
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
 	bool enabled_clk;
 	bool isGpio_cfgDone;
-#ifdef FEATURE_SPI_WAKELOCK
 	struct wake_lock fp_spi_lock;
 #endif
-#endif
+	struct wake_lock fp_signal_lock;
 	bool tz_mode;
 	int detect_period;
 	int detect_threshold;
 	bool finger_on;
+	const char *chipid;
+	unsigned int orient;
 	struct pinctrl *p;
 	struct pinctrl_state *pins_sleep;
 	struct pinctrl_state *pins_idle;

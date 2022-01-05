@@ -139,8 +139,6 @@ ss_regulator_platform {
 #define RST_SEQ_LEN	10
 #define MAX_RDATA_LDO	10
 
-int blconf_done;
-
 enum {
 	REGTYPE_PANEL_RESET = 0, /* display reset sequence */
 	REGTYPE_BL_CONFIG, /* BLIC initial configure data via I2c */
@@ -158,6 +156,7 @@ struct ssreg_rdata_blconf {
 	char *addr;
 	char *data;
 	int size;
+	bool enable;
 };
 
 struct ssreg_rdata_gpioreg {
@@ -314,25 +313,37 @@ static int blconf_enable(struct regulator_dev *rdev)
 	}
 	mutex_unlock(&pmic->mtx);
 
+	r_blconf->enable = true;
+
 	/*
 		To execute wake-up sequence under i2c-fail,
 		we return only 0.
 	*/
 
-	blconf_done = 1;
 	return 0;
 }
 
 static int blconf_disable(struct regulator_dev *rdev)
 {
-	blconf_done = 0;
+	struct ssreg_pmic *pmic = rdev_get_drvdata(rdev);
+	struct ssreg_pdata *pdata = pmic->pdata;
+	int id = rdev_get_id(rdev);
+	struct ssreg_regulator_data *rdata = &pdata->regulators[id];
+	struct ssreg_rdata_blconf *r_blconf = rdata->r_blconf;
+	r_blconf->enable = false;
+	
 	return 0;
 }
 
 
 static int blconf_is_enabled(struct regulator_dev *rdev)
 {
-	return blconf_done;
+	struct ssreg_pmic *pmic = rdev_get_drvdata(rdev);
+	struct ssreg_pdata *pdata = pmic->pdata;
+	int id = rdev_get_id(rdev);
+	struct ssreg_regulator_data *rdata = &pdata->regulators[id];
+	struct ssreg_rdata_blconf *r_blconf = rdata->r_blconf;
+	return (int)r_blconf->enable;
 }
 
 static struct regulator_ops blconf_ops = {

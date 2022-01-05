@@ -34,6 +34,13 @@ extern unsigned int get_boot_stat_freq(void);
 extern void sec_boot_stat_add(const char * c);
 extern void sec_bsp_enable_console(void);
 extern bool sec_bsp_is_console_enabled(void);
+
+#define MAX_LENGTH_OF_SYSTEMSERVER_LOG 90
+struct systemserver_init_time_entry {
+	struct list_head next;
+	char buf[MAX_LENGTH_OF_SYSTEMSERVER_LOG];
+};
+
 #else /* CONFIG_SEC_BSP */
 #define is_boot_recovery()      (0)
 #define get_boot_stat_time()

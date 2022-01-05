@@ -192,7 +192,7 @@
 /* SEC_TS READ REGISTER ADDRESS */
 #define SEC_TS_CMD_SENSE_ON			0x10
 #define SEC_TS_CMD_SENSE_OFF			0x11
-#define SEC_TS_CMD_SW_RESET			0x12
+#define SEC_TS_CMD_SW_RESET			0x42
 #define SEC_TS_CMD_CALIBRATION_SEC		0x13	// send it to touch ic, but toucu ic works nothing.
 #define SEC_TS_CMD_FACTORY_PANELCALIBRATION	0x14
 
@@ -337,6 +337,7 @@
 #define SEC_TS_GESTURE_CODE_SPAY		0x00
 #define SEC_TS_GESTURE_CODE_DOUBLE_TAP		0x01
 #define SEC_TS_GESTURE_CODE_FORCE		0x02
+#define SEC_TS_GESTURE_CODE_SINGLE_TAP		0x04
 
 /* SEC_TS_GESTURE_ID*/
 #define SEC_TS_EVENT_PRESSURE_TOUCHED		0x00
@@ -472,7 +473,7 @@ typedef enum {
 	SPONGE_EVENT_TYPE_SPAY			= 0x04,
 	SPONGE_EVENT_TYPE_PRESSURE_TOUCHED = 0x05,
 	SPONGE_EVENT_TYPE_PRESSURE_RELEASED	= 0x06,
-	SPONGE_EVENT_TYPE_AOD			= 0x08,
+	SPONGE_EVENT_TYPE_SINGLE_TAP		= 0x08,
 	SPONGE_EVENT_TYPE_AOD_PRESS		= 0x09,
 	SPONGE_EVENT_TYPE_AOD_LONGPRESS		= 0x0A,
 	SPONGE_EVENT_TYPE_AOD_DOUBLETAB		= 0x0B,
@@ -488,6 +489,7 @@ typedef enum {
 
 #define SEC_TS_MODE_SPONGE_SPAY			(1 << 1)
 #define SEC_TS_MODE_SPONGE_AOD			(1 << 2)
+#define SEC_TS_MODE_SPONGE_SINGLE_TAP		(1 << 3)
 #define SEC_TS_MODE_SPONGE_FORCE_KEY	(1 << 6)
 
 #define SEC_TS_MODE_LOWPOWER_FLAG			(SEC_TS_MODE_SPONGE_SPAY | SEC_TS_MODE_SPONGE_AOD \
@@ -672,6 +674,7 @@ struct sec_ts_data {
 	u8 pressure_setting_mode;
 	volatile u8 touch_noise_status;
 	volatile bool input_closed;
+	long prox_power_off;
 
 	int touch_count;
 	int tx_count;

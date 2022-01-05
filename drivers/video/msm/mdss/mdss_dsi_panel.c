@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -24,6 +24,7 @@
 #include <linux/string.h>
 
 #include "mdss_dsi.h"
+#include "mdss_debug.h"
 #ifdef TARGET_HW_MDSS_HDMI
 #include "mdss_dba_utils.h"
 #endif
@@ -34,7 +35,7 @@
 DEFINE_MUTEX(STATUS_CHANGE);
 /* For Hall ic panel reset funtion */
 DEFINE_MUTEX(LP_STOP_MODE_LOCK);
-extern unsigned int is_boot_recovery;
+//extern unsigned int is_boot_recovery; /* not use */
 #endif
 
 #define DT_CMD_HDR 6
@@ -302,11 +303,12 @@ static void mdss_dsi_panel_set_idle_mode(struct mdss_panel_data *pdata,
 	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 						panel_data);
 
-	pr_debug("%s: Idle (%d->%d)\n", __func__, ctrl->idle, enable);
+	pr_info("%s: Idle (%d->%d)\n", __func__, ctrl->idle, enable);
 
 	if (ctrl->idle == enable)
 		return;
 
+	MDSS_XLOG(ctrl->idle, enable);
 	if (enable) {
 		if (ctrl->idle_on_cmds.cmd_cnt) {
 			mdss_dsi_panel_cmds_send(ctrl, &ctrl->idle_on_cmds,
@@ -357,6 +359,7 @@ static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 			rc);
 		goto rst_gpio_err;
 	}
+
 	if (gpio_is_valid(ctrl_pdata->bklt_en_gpio)) {
 		rc = gpio_request(ctrl_pdata->bklt_en_gpio,
 						"bklt_enable");
@@ -477,6 +480,8 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 						__func__);
 					goto exit;
 				}
+				gpio_set_value((ctrl_pdata->disp_en_gpio), 1);
+				usleep_range(100, 110);
 			}
 
 #if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
@@ -559,6 +564,7 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 		}
 		if (gpio_is_valid(ctrl_pdata->disp_en_gpio)) {
 			gpio_set_value((ctrl_pdata->disp_en_gpio), 0);
+			usleep_range(100, 110);
 			gpio_free(ctrl_pdata->disp_en_gpio);
 		}
 #if !defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
@@ -3279,6 +3285,7 @@ u32 mdss_samsung_panel_cmd_read(struct mdss_dsi_ctrl_pdata *ctrl,
 {
 	struct dcs_cmd_req cmdreq;
 	struct mdss_panel_info *pinfo;
+	struct samsung_display_driver_data *vdd = samsung_get_vdd();
 
 	pinfo = &(ctrl->panel_data.panel_info);
 	if (pinfo->dcs_cmd_by_left) {
@@ -3290,6 +3297,9 @@ u32 mdss_samsung_panel_cmd_read(struct mdss_dsi_ctrl_pdata *ctrl,
 	cmdreq.cmds = pcmds->cmds;
 	cmdreq.cmds_cnt = 1;
 	cmdreq.flags = CMD_REQ_RX | CMD_REQ_COMMIT;
+
+	if (vdd->poc_operation)
+		cmdreq.flags |=CMD_REQ_DMA_TPG;
 
 	if (read_size)
 		cmdreq.rlen = read_size;

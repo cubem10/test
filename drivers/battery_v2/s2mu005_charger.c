@@ -352,6 +352,7 @@ static void s2mu005_enable_charger_switch(struct s2mu005_charger_data *charger,
 #if defined(CONFIG_S2MU005_SUPPORT_BC1P2_CERTI)
 		/* work-around for BC1.2 */
 		if (charger->dev_id >= 4) {
+			mutex_lock(&charger->charger_mutex);
 			original_input_current = s2mu005_get_input_current_limit(charger->client);
 			pr_info("%s: set dp 0V\n", __func__);
 			s2mu005_write_reg(charger->client, 0x55, 0x00); /* set dp 0V */
@@ -363,6 +364,13 @@ static void s2mu005_enable_charger_switch(struct s2mu005_charger_data *charger,
 #endif
 		s2mu005_update_reg(charger->client, S2MU005_CHG_CTRL0,
 			buck_mode << REG_MODE_SHIFT, REG_MODE_MASK);
+#if defined(CONFIG_S2MU005_SUPPORT_BC1P2_CERTI)
+		/* work-around for BC1.2 */
+		if (charger->dev_id >= 4) {
+			s2mu005_set_input_current_limit_no_lock(charger, original_input_current);
+			mutex_unlock(&charger->charger_mutex);
+		}
+#endif
 		s2mu005_wdt_control(charger, 0); /* watchdog timer disable */
 	}
 }
@@ -379,6 +387,7 @@ static void s2mu005_set_buck(struct s2mu005_charger_data *charger, int enable)
 #if defined(CONFIG_S2MU005_SUPPORT_BC1P2_CERTI)
 		/* work-around for BC1.2 */
 		if (charger->dev_id >= 4) { 
+			mutex_lock(&charger->charger_mutex);
 			original_input_current = s2mu005_get_input_current_limit(charger->client);
 			pr_info("%s: set dp 0V\n", __func__);
 			s2mu005_write_reg(charger->client, 0x55, 0x00); /* set dp 0V */
@@ -390,6 +399,13 @@ static void s2mu005_set_buck(struct s2mu005_charger_data *charger, int enable)
 #endif
 		pr_info("[DEBUG]%s: set buck off (charger off mode)\n", __func__);
 		s2mu005_update_reg(charger->client, S2MU005_CHG_CTRL0, 0 << REG_MODE_SHIFT, REG_MODE_MASK);
+#if defined(CONFIG_S2MU005_SUPPORT_BC1P2_CERTI)
+		/* work-around for BC1.2 */
+		if (charger->dev_id >= 4) {
+			s2mu005_set_input_current_limit_no_lock(charger, original_input_current);
+			mutex_unlock(&charger->charger_mutex);
+		}
+#endif
 	}
 }
 

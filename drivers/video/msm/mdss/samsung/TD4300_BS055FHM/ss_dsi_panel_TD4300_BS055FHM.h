@@ -33,7 +33,6 @@ Copyright (C) 2012, Samsung Electronics. All rights reserved.
 #define SS_DSI_PANEL_TD4300_BS055FHM_H
 
 #include "../ss_dsi_panel_common.h"
-#include "../ss_regulator_common.h"
 
 #define TD4300_BS055FHM_SUPPORT_PANEL_COUNT 1
 #define LCD_DEFAUL_BL_LEVEL 125

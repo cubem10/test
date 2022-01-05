@@ -92,7 +92,6 @@
 		qcom,mdss-dsi-rx-eot-ignore;
 		qcom,mdss-dsi-tx-eot-append;
 		qcom,mdss-dsi-gamma-update = [39 01 00 00 00 00 02 F7 03];
-		qcom,mdss-dsi-force-clock-lane-hs = <1>;
 
 /*
  * ************************************************************************************************************************************
@@ -106,6 +105,10 @@
  		samsung,panel-vendor = "SDC";
 		samsung,support_mdnie_lite;
 		samsung,ux-color-bit-support;
+	
+		/* To use device_resume & device_suspend for optimizing display on time */
+		samsung,reduce_display_on_time;
+		samsung,dsi_force_clock_lane_hs;
 		
 		samsung,display_on_tx_cmds_revA  = [05 01 00 00 00 00 02 29 00];
 
@@ -138,8 +141,6 @@
 		samsung,mdnie_read_rx_cmds_revA		   = [ 06 01 00 00 00 00 01 A1 04 00];
 		samsung,mtp_read_sysfs_rx_cmds_revA    = [ 06 01 00 00 00 00 01 01 01 01];
 		samsung,ldi_debug0_rx_cmds_revA        = [ 06 01 00 00 00 00 01 0A 01 00];
-		samsung,ldi_debug1_rx_cmds_revA        = [ 06 01 00 00 00 00 01 0E 01 00];
-		samsung,ldi_debug2_rx_cmds_revA        = [ 06 01 00 00 00 00 01 EA 08 00];
 
 		/*
 		 * ************************************************************************************************************************

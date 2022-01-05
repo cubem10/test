@@ -901,12 +901,13 @@ static void adjust_gamma_val_hbm(struct SMART_DIM *psmart)
 #define HBM_GAMMA_SET_CNT 33
 #define PACKED_GAMM_SET_CNT 30 /* packed V255 R,G.B */
 #define V255_RGB_MSB_CNT 3
+int hbm_gamma[PACKED_GAMM_SET_CNT];
+int max_gamma[PACKED_GAMM_SET_CNT];
 static void hbm_interpolation_init(struct SMART_DIM *pSmart)
 {
 	int loop, gamma_index;
 	int rate;
-	int hbm_gamma[PACKED_GAMM_SET_CNT];
-	int max_gamma[PACKED_GAMM_SET_CNT];
+
 	char *hbm_payload;
 	int hbm_interpolation_gamma[HBM_INTERPOLATION_STEP][PACKED_GAMM_SET_CNT];
 	int normal_max_candela = pSmart->gen_table[LUMINANCE_MAX-1].lux;

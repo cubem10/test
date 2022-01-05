@@ -96,6 +96,7 @@ void ss_self_move_on(struct mdss_dsi_ctrl_pdata *ctrl, int enable);
 int ss_self_move_set(const void __user *argp);
 
 void ss_self_mask_on(struct mdss_dsi_ctrl_pdata *ctrl, int enable);
+void self_mask_img_write(struct mdss_dsi_ctrl_pdata *ctrl);
 
 void ss_self_icon_on(struct mdss_dsi_ctrl_pdata *ctrl, int enable);
 void ss_self_icon_grid_img_write(struct mdss_dsi_ctrl_pdata *ctrl);

@@ -131,7 +131,7 @@ static int wlan_hdd_read_mac_addr(unsigned char *mac)
 // Control power save mode on/off by sh2011.lee@samsung 2012-01-10
 #ifdef SEC_CONFIG_PSM
 
-#define SEC_PSM_FILEPATH	"/data/misc/conn/.psm.info"
+#define SEC_PSM_FILEPATH	"/data/vendor/conn/.psm.info"
 
 unsigned int wlan_hdd_sec_get_psm(unsigned int original_value)
 {
@@ -163,7 +163,7 @@ unsigned int wlan_hdd_sec_get_psm(unsigned int original_value)
 #ifdef SEC_WRITE_VERSION_IN_FILE
 #include "qwlan_version.h"
 
-#define SEC_VERSION_FILEPATH	"/data/misc/conn/.wifiver.info"
+#define SEC_VERSION_FILEPATH	"/data/vendor/conn/.wifiver.info"
 
 int wlan_hdd_sec_write_version_file(char *riva_version)
 {

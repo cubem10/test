@@ -1841,13 +1841,13 @@ static void mtp_sorting(struct SMART_DIM *psmart)
 		pdest[loop] = pfrom[sorting[loop]];
 }
 
-int hbm_interpolation_table[HBM_INTERPOLATION_STEP] = {465, 488, 510, 533, 555, 578, 600};
+static int hbm_interpolation_table[HBM_INTERPOLATION_STEP] = {465, 488, 510, 533, 555, 578, 600};
+static int hbm_gamma[27];
+static int max_gamma[27];
 static void hbm_interpolation_init(struct SMART_DIM *pSmart)
 {
 	int i, j;
 	int rate;
-	int hbm_gamma[27];
-	int max_gamma[27];
 	char *hbm_payload;
 	//char log_buf[256];
 	int hbm_interpolation_gamma[HBM_INTERPOLATION_STEP][27];
@@ -1920,7 +1920,7 @@ static int smart_dimming_init(struct SMART_DIM *psmart)
 	print_RGB_offset(psmart);
 #endif
 
-	psmart->vregout_voltage = VREG0_REF_6P2;
+	psmart->vregout_voltage = VREG0_REF_6P0;
 
 	v255_adjustment(psmart);
 	vt_adjustment(psmart);

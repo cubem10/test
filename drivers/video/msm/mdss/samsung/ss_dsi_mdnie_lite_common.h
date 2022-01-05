@@ -55,9 +55,9 @@ enum APP {
 	VIDEO_WARM_APP,
 	VIDEO_COLD_APP,
 	CAMERA_APP,
-	NAVI_APP,
+	CAMERA_SWA_APP,
 	GALLERY_APP,
-	VT_APP,
+	GALLERY_SWA_APP,
 	BROWSER_APP,
 	eBOOK_APP,
 	EMAIL_APP,
@@ -352,6 +352,9 @@ struct mdnie_lite_tune_data {
 	char dsi0_white_ldu_r;
 	char dsi0_white_ldu_g;
 	char dsi0_white_ldu_b;
+	char dsi0_white_swa_r;
+	char dsi0_white_swa_g;
+	char dsi0_white_swa_b;
 
 /*******************************************
 *					DSI1 DATA
@@ -479,6 +482,9 @@ struct mdnie_lite_tune_data {
 	char dsi1_white_ldu_r;
 	char dsi1_white_ldu_g;
 	char dsi1_white_ldu_b;
+	char dsi1_white_swa_r;
+	char dsi1_white_swa_g;
+	char dsi1_white_swa_b;
 };
 
 /* COMMON FUNCTION*/

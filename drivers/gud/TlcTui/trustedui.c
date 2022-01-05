@@ -121,4 +121,4 @@ EXPORT_SYMBOL(trustedui_clear_mask);
 
 MODULE_AUTHOR("Trustonic Limited");
 MODULE_LICENSE("GPL v2");
-MODULE_DESCRIPTION("<t-base TUI");
+MODULE_DESCRIPTION("Kinibi TUI");

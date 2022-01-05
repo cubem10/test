@@ -177,7 +177,9 @@ static enum power_supply_property sec_battery_props[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_AVG,
 	POWER_SUPPLY_PROP_CURRENT_NOW,
 	POWER_SUPPLY_PROP_CURRENT_AVG,
+	POWER_SUPPLY_PROP_CHARGE_FULL,
 	POWER_SUPPLY_PROP_CHARGE_NOW,
+	POWER_SUPPLY_PROP_CHARGE_COUNTER,
 	POWER_SUPPLY_PROP_CAPACITY,
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_TEMP_AMBIENT,
@@ -6988,9 +6990,15 @@ static int sec_bat_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CURRENT_AVG:
 		val->intval = battery->current_avg;
 		break;
+	case POWER_SUPPLY_PROP_CHARGE_COUNTER:
+		val->intval = battery->pdata->battery_full_capacity * battery->capacity;
+		break;
 	/* charging mode (differ from power supply) */
 	case POWER_SUPPLY_PROP_CHARGE_NOW:
 		val->intval = battery->charging_mode;
+		break;
+	case POWER_SUPPLY_PROP_CHARGE_FULL:
+		val->intval = battery->pdata->battery_full_capacity * 1000;
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
 		if (battery->pdata->fake_capacity) {
@@ -7968,6 +7976,11 @@ static int sec_bat_parse_dt(struct device *dev,
 		return 1;
 	}
 
+	ret = of_property_read_u32(np, "battery,battery_full_capacity",
+			&pdata->battery_full_capacity);
+	if (ret) {
+		pr_info("%s : battery_full_capacity is Empty\n", __func__);
+	}
 #if defined(CONFIG_BATTERY_CISD)
 	ret = of_property_read_u32(np, "battery,cisd_cap_high_thr",
 		&pdata->cisd_cap_high_thr);

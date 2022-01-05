@@ -132,7 +132,8 @@ extern void sec_getlog_supply_kloginfo(void *klog_buf);
 
 extern void sec_gaf_supply_rqinfo(unsigned short curr_offset,
 				  unsigned short rq_offset);
-extern int sec_debug_is_enabled(void);
+extern bool sec_debug_is_enabled(void);
+extern unsigned int sec_debug_level(void);
 extern int sec_debug_is_modem_seperate_debug_ssr(void);
 extern int silent_log_panic_handler(void);
 extern void sec_debug_secure_app_addr_size(uint32_t addr, uint32_t size);
@@ -166,7 +167,8 @@ static inline void sec_getlog_supply_kloginfo(void *klog_buf) {}
 static inline void sec_gaf_supply_rqinfo(unsigned short curr_offset,
 					 unsigned short rq_offset) {}
 
-static inline int sec_debug_is_enabled(void) { return 0; }
+static inline bool sec_debug_is_enabled(void) { return false; }
+static inline unsigned int sec_debug_level(void) {return 0; }
 static inline void sec_debug_hw_reset(void) {}
 static inline void emerg_pet_watchdog(void) {}
 static inline void sec_debug_set_rr(u32 reason) {}
@@ -487,9 +489,13 @@ struct sec_debug_log {
 #define KERNEL_SEC_DEBUG_LEVEL_LOW	(0x574F4C44)
 #define KERNEL_SEC_DEBUG_LEVEL_MID	(0x44494D44)
 #define KERNEL_SEC_DEBUG_LEVEL_HIGH	(0x47494844)
+
 #define ANDROID_DEBUG_LEVEL_LOW		0x4f4c
 #define ANDROID_DEBUG_LEVEL_MID		0x494d
 #define ANDROID_DEBUG_LEVEL_HIGH	0x4948
+
+#define ANDROID_CP_DEBUG_ON		0x5500
+#define ANDROID_CP_DEBUG_OFF	0x55ff
 
 __weak void dump_all_task_info(void);
 __weak void dump_cpu_stat(void);
@@ -522,4 +528,14 @@ struct tsp_dump_callbacks {
 };
 #endif
 
+#ifdef CONFIG_SEC_DEBUG_PWDT
+#define SEC_DEBUG_MAX_PWDT_RESTART_CNT 20	//200 seconds
+#define SEC_DEBUG_MAX_PWDT_SYNC_CNT 40	//400 seconds
+#define SEC_DEBUG_MAX_PWDT_INIT_CNT 200	//2000 seconds
+extern void sec_debug_check_pwdt(void);
+extern unsigned int is_verifiedboot_state(void);
+#endif
+
+extern unsigned int is_boot_recovery(void);
+extern unsigned int is_boot_lpm(void);
 #endif	/* SEC_DEBUG_H */

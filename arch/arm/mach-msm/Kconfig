@@ -188,6 +188,7 @@ config ARCH_MSM8917
 	select MSM_RPM_SMD
 	select MSM_JTAGV8 if CORESIGHT_ETMV4
 	select ARCH_WANT_KMAP_ATOMIC_FLUSH
+	select SEC_NOTSUPPORTED_HLOSNAD
 
 config ARCH_MSM8920
 	bool "MSM8920"
@@ -560,6 +561,13 @@ config MACH_J4PRIMELTE_SEA_OPEN
         help
         Support for Samsung J4PRIMELTE SEA OPEN device.
 		
+config MACH_J4PRIMELTE_KOR_OPEN
+        depends on SEC_J4PRIMELTE_PROJECT
+        default n
+        bool "Samsung J4PRIMELTE KOR OPEN"
+        help
+        Support for Samsung J4PRIMELTE KOR OPEN device.
+
 config SEC_J4CORELTE_PROJECT
         depends on ARCH_MSM8937
         default n

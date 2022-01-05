@@ -1,11 +1,24 @@
+#/*
+# * Copyright (c) 2013-2018 TRUSTONIC LIMITED
+# * All Rights Reserved.
+# *
+# * This program is free software; you can redistribute it and/or
+# * modify it under the terms of the GNU General Public License
+# * version 2 as published by the Free Software Foundation.
+# *
+# * This program is distributed in the hope that it will be useful,
+# * but WITHOUT ANY WARRANTY; without even the implied warranty of
+# * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# * GNU General Public License for more details.
+# */
 #
-# Makefile for the <t-base trusted UI driver
+# Makefile for the Kinibi trusted UI driver
 #
 
 GUD_ROOT_FOLDER := drivers/gud/
 
 # add our modules to kernel.
-obj-$(CONFIG_TRUSTONIC_TRUSTED_UI) += t-base-tui.o
+obj-$(CONFIG_TRUSTONIC_TRUSTED_UI_QC) += t-base-tui.o
 
 t-base-tui-y := main.o tlcTui.o tui-hal.o
 

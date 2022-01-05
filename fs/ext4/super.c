@@ -732,6 +732,7 @@ __acquires(bitlock)
 	}
 
 	ext4_unlock_group(sb, grp);
+	ext4_commit_super(sb, 1);
 	ext4_handle_error(sb, page_buf);
 	if (page_buf)
 		free_page((unsigned long)page_buf);
@@ -2143,6 +2144,7 @@ static int ext4_check_descriptors(struct super_block *sb,
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	ext4_fsblk_t first_block = le32_to_cpu(sbi->s_es->s_first_data_block);
 	ext4_fsblk_t last_block;
+	ext4_fsblk_t last_bg_block = sb_block + ext4_bg_num_gdb(sb, 0) + 1;
 	ext4_fsblk_t block_bitmap;
 	ext4_fsblk_t inode_bitmap;
 	ext4_fsblk_t inode_table;
@@ -2172,6 +2174,16 @@ static int ext4_check_descriptors(struct super_block *sb,
 			ext4_msg(sb, KERN_ERR, "ext4_check_descriptors: "
 				 "Block bitmap for group %u overlaps "
 				 "superblock", i);
+			if (!(sb->s_flags & MS_RDONLY))
+				return 0;
+		}
+		if (block_bitmap >= sb_block + 1 &&
+		    block_bitmap <= last_bg_block) {
+			ext4_msg(sb, KERN_ERR, "ext4_check_descriptors: "
+				 "Block bitmap for group %u overlaps "
+				 "block group descriptors", i);
+			if (!(sb->s_flags & MS_RDONLY))
+				return 0;
 		}
 		if (block_bitmap < first_block || block_bitmap > last_block) {
 			ext4_msg(sb, KERN_ERR, "ext4_check_descriptors: "
@@ -2184,6 +2196,16 @@ static int ext4_check_descriptors(struct super_block *sb,
 			ext4_msg(sb, KERN_ERR, "ext4_check_descriptors: "
 				 "Inode bitmap for group %u overlaps "
 				 "superblock", i);
+			if (!(sb->s_flags & MS_RDONLY))
+				return 0;
+		}
+		if (inode_bitmap >= sb_block + 1 &&
+		    inode_bitmap <= last_bg_block) {
+			ext4_msg(sb, KERN_ERR, "ext4_check_descriptors: "
+				 "Inode bitmap for group %u overlaps "
+				 "block group descriptors", i);
+			if (!(sb->s_flags & MS_RDONLY))
+				return 0;
 		}
 		if (inode_bitmap < first_block || inode_bitmap > last_block) {
 			ext4_msg(sb, KERN_ERR, "ext4_check_descriptors: "
@@ -2196,6 +2218,16 @@ static int ext4_check_descriptors(struct super_block *sb,
 			ext4_msg(sb, KERN_ERR, "ext4_check_descriptors: "
 				 "Inode table for group %u overlaps "
 				 "superblock", i);
+			if (!(sb->s_flags & MS_RDONLY))
+				return 0;
+		}
+		if (inode_table >= sb_block + 1 &&
+		    inode_table <= last_bg_block) {
+			ext4_msg(sb, KERN_ERR, "ext4_check_descriptors: "
+				 "Inode table for group %u overlaps "
+				 "block group descriptors", i);
+			if (!(sb->s_flags & MS_RDONLY))
+				return 0;
 		}
 		if (inode_table < first_block ||
 		    inode_table + sbi->s_itb_per_group - 1 > last_block) {
@@ -2285,7 +2317,7 @@ static void ext4_orphan_cleanup(struct super_block *sb,
 #ifdef CONFIG_QUOTA
 	/* Needed for iput() to work correctly and not trash data */
 	sb->s_flags |= MS_ACTIVE;
-	/* Turn on quotas so that they are updated correctly */
+	/* Turn on journaled quotas so that they are updated correctly */
 	for (i = 0; i < EXT4_MAXQUOTAS; i++) {
 		if (EXT4_SB(sb)->s_qf_names[i]) {
 			int ret = ext4_quota_on_mount(sb, i);
@@ -2351,9 +2383,9 @@ static void ext4_orphan_cleanup(struct super_block *sb,
 		ext4_msg(sb, KERN_INFO, "%d truncate%s cleaned up",
 		       PLURAL(nr_truncates));
 #ifdef CONFIG_QUOTA
-	/* Turn quotas off */
+	/* Turn off journaled quotas if they were enabled for orphan cleanup */
 	for (i = 0; i < EXT4_MAXQUOTAS; i++) {
-		if (sb_dqopt(sb)->files[i])
+		if (EXT4_SB(sb)->s_qf_names[i] && sb_dqopt(sb)->files[i])
 			dquot_quota_off(sb, i);
 	}
 #endif
@@ -2521,9 +2553,9 @@ static unsigned long ext4_get_stripe_size(struct ext4_sb_info *sbi)
 
 	if (sbi->s_stripe && sbi->s_stripe <= sbi->s_blocks_per_group)
 		ret = sbi->s_stripe;
-	else if (stripe_width <= sbi->s_blocks_per_group)
+	else if (stripe_width && stripe_width <= sbi->s_blocks_per_group)
 		ret = stripe_width;
-	else if (stride <= sbi->s_blocks_per_group)
+	else if (stride && stride <= sbi->s_blocks_per_group)
 		ret = stride;
 	else
 		ret = 0;
@@ -2560,6 +2592,34 @@ static int parse_strtoull(const char *buf,
 	if (!ret && *value > max)
 		ret = -EINVAL;
 	return ret;
+}
+
+static ssize_t sec_defrag_stat_show(struct ext4_attr *a,
+				struct ext4_sb_info *sbi, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE,
+		"\"%s\":\"%u\",\"%s\":\"%u\",\"%s\":\"%u\",\"%s\":\"%u\",\"%s\":\"%u\",\"%s\":\"%u\"\n",
+		"BESTEXT", 	sbi->s_sec_part_best_extents,
+		"CUREXT", 	sbi->s_sec_part_current_extents,
+		"DEFSCORE", sbi->s_sec_part_score,
+		"DEFWRITE", sbi->s_sec_defrag_writes_kb,
+		"NUMAPP", 	sbi->s_sec_num_apps,
+		"CAPAPP", 	sbi->s_sec_capacity_apps_kb);
+}
+
+static ssize_t sec_defrag_stat_store(struct ext4_attr *a,
+					  struct ext4_sb_info *sbi,
+					  const char *buf, size_t count)
+{
+	if (buf[0] == 'c' || buf[0] == 'C') {
+		sbi->s_sec_part_best_extents = 0;
+		sbi->s_sec_part_current_extents = 0;
+		sbi->s_sec_part_score = 0;
+		sbi->s_sec_defrag_writes_kb = 0;
+		sbi->s_sec_num_apps = 0;
+		sbi->s_sec_capacity_apps_kb = 0;
+	}
+	return count;
 }
 
 static ssize_t sec_fs_stat_show(struct ext4_attr *a,
@@ -2780,6 +2840,14 @@ static struct ext4_attr ext4_attr_##_name = {			\
 	},							\
 }
 
+EXT4_RW_ATTR_SBI_UI(sec_part_best_extents, s_sec_part_best_extents);
+EXT4_RW_ATTR_SBI_UI(sec_part_current_extents, s_sec_part_current_extents);
+EXT4_RW_ATTR_SBI_UI(sec_part_score, s_sec_part_score);
+EXT4_RW_ATTR_SBI_UI(sec_defrag_writes_kb, s_sec_defrag_writes_kb);
+EXT4_RW_ATTR_SBI_UI(sec_num_apps, s_sec_num_apps);
+EXT4_RW_ATTR_SBI_UI(sec_capacity_apps_kb, s_sec_capacity_apps_kb);
+
+EXT4_RW_ATTR(sec_defrag_stat);
 EXT4_RO_ATTR(sec_fs_stat);
 EXT4_RO_ATTR(sec_fs_freefrag);
 EXT4_RO_ATTR(delayed_allocation_blocks);
@@ -2810,6 +2878,13 @@ EXT4_RO_ATTR_ES_UI(first_error_time, s_first_error_time);
 EXT4_RO_ATTR_ES_UI(last_error_time, s_last_error_time);
 
 static struct attribute *ext4_attrs[] = {
+	ATTR_LIST(sec_part_best_extents),
+	ATTR_LIST(sec_part_current_extents),
+	ATTR_LIST(sec_part_score),
+	ATTR_LIST(sec_defrag_writes_kb),
+	ATTR_LIST(sec_num_apps),
+	ATTR_LIST(sec_capacity_apps_kb),
+	ATTR_LIST(sec_defrag_stat),
 	ATTR_LIST(sec_fs_stat),
 	ATTR_LIST(sec_fs_freefrag),
 	ATTR_LIST(delayed_allocation_blocks),
@@ -3235,6 +3310,9 @@ static ext4_group_t ext4_has_uninit_itable(struct super_block *sb)
 	ext4_group_t group, ngroups = EXT4_SB(sb)->s_groups_count;
 	struct ext4_group_desc *gdp = NULL;
 
+    if (!ext4_has_group_desc_csum(sb))
+       return ngroups;
+ 		   	
 	for (group = 0; group < ngroups; group++) {
 		gdp = ext4_get_group_desc(sb, group, NULL);
 		if (!gdp)
@@ -3846,6 +3924,13 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 			 le32_to_cpu(es->s_log_block_size));
 		goto failed_mount;
 	}
+	if (le32_to_cpu(es->s_log_cluster_size) >
+	    (EXT4_MAX_CLUSTER_LOG_SIZE - EXT4_MIN_BLOCK_LOG_SIZE)) {
+		ext4_msg(sb, KERN_ERR,
+			 "Invalid log cluster size: %u",
+			 le32_to_cpu(es->s_log_cluster_size));
+		goto failed_mount;
+	}
 
 	if (EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_ENCRYPT) &&
 	    es->s_encryption_level) {
@@ -3906,6 +3991,11 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 	} else {
 		sbi->s_inode_size = le16_to_cpu(es->s_inode_size);
 		sbi->s_first_ino = le32_to_cpu(es->s_first_ino);
+		if (sbi->s_first_ino < EXT4_GOOD_OLD_FIRST_INO) {
+			ext4_msg(sb, KERN_ERR, "invalid first ino: %u",
+				 sbi->s_first_ino);
+			goto failed_mount;
+		}
 		if ((sbi->s_inode_size < EXT4_GOOD_OLD_INODE_SIZE) ||
 		    (!is_power_of_2(sbi->s_inode_size)) ||
 		    (sbi->s_inode_size > blocksize)) {
@@ -3983,13 +4073,6 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 				 "block size (%d)", clustersize, blocksize);
 			goto failed_mount;
 		}
-		if (le32_to_cpu(es->s_log_cluster_size) >
-		    (EXT4_MAX_CLUSTER_LOG_SIZE - EXT4_MIN_BLOCK_LOG_SIZE)) {
-			ext4_msg(sb, KERN_ERR,
-				 "Invalid log cluster size: %u",
-				 le32_to_cpu(es->s_log_cluster_size));
-			goto failed_mount;
-		}
 		sbi->s_cluster_bits = le32_to_cpu(es->s_log_cluster_size) -
 			le32_to_cpu(es->s_log_block_size);
 		sbi->s_clusters_per_group =
@@ -4010,10 +4093,10 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 		}
 	} else {
 		if (clustersize != blocksize) {
-			ext4_warning(sb, "fragment/cluster size (%d) != "
-				     "block size (%d)", clustersize,
-				     blocksize);
-			clustersize = blocksize;
+			ext4_msg(sb, KERN_ERR,
+				 "fragment/cluster size (%d) != "
+				 "block size (%d)", clustersize, blocksize);
+			goto failed_mount;
 		}
 		if (sbi->s_blocks_per_group > blocksize * 8) {
 			ext4_msg(sb, KERN_ERR,
@@ -4067,6 +4150,13 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 			 ext4_blocks_count(es));
 		goto failed_mount;
 	}
+	if ((es->s_first_data_block == 0) && (es->s_log_block_size == 0) &&
+	    (sbi->s_cluster_ratio == 1)) {
+		ext4_msg(sb, KERN_WARNING, "bad geometry: first data "
+			 "block is 0 with a 1k block and cluster size");
+		goto failed_mount;
+	}
+
 	blocks_count = (ext4_blocks_count(es) -
 			le32_to_cpu(es->s_first_data_block) +
 			EXT4_BLOCKS_PER_GROUP(sb) - 1);
@@ -4100,6 +4190,14 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 	if (sbi->s_group_desc == NULL) {
 		ext4_msg(sb, KERN_ERR, "not enough memory");
 		ret = -ENOMEM;
+		goto failed_mount;
+	}
+	if (((u64)sbi->s_groups_count * sbi->s_inodes_per_group) !=
+	    le32_to_cpu(es->s_inodes_count)) {
+		ext4_msg(sb, KERN_ERR, "inodes count not valid: %u vs %llu",
+			 le32_to_cpu(es->s_inodes_count),
+			 ((u64)sbi->s_groups_count * sbi->s_inodes_per_group));
+		ret = -EINVAL;
 		goto failed_mount;
 	}
 
@@ -4270,7 +4368,8 @@ no_journal:
 			goto failed_mount_wq;
 	}
 
-	if (le32_to_cpu(es->s_sec_magic) == EXT4_SEC_DATA_MAGIC) {
+	if (strcmp(es->s_volume_name, "data") == 0 ||
+			le32_to_cpu(es->s_sec_magic) == EXT4_SEC_DATA_MAGIC) {
 		sbi->s_r_inodes_count = EXT4_DEF_RESERVE_INODE;
 		ext4_msg(sb, KERN_INFO, "Reserve inodes (%d/%u)",
 			EXT4_DEF_RESERVE_INODE,
@@ -4342,7 +4441,8 @@ no_journal:
 	}
 
 #define ANDROID_M_R_BLOCKS_COUNT	(1280)
-	if (le32_to_cpu(sbi->s_es->s_sec_magic) == EXT4_SEC_DATA_MAGIC)
+	if (strcmp(es->s_volume_name, "data") == 0 ||
+			le32_to_cpu(sbi->s_es->s_sec_magic) == EXT4_SEC_DATA_MAGIC)
 		atomic64_set(&sbi->s_r_blocks_count, ext4_r_blocks_count(es) ? :
 				ANDROID_M_R_BLOCKS_COUNT);
 	if (atomic64_read(&sbi->s_r_blocks_count))
@@ -4480,8 +4580,10 @@ cantfind_ext4:
 	/* for debugging, sangwoo2.lee */
 	/* If you wanna use the flag 'MS_SILENT', call */
 	/* 'print_bh' function within below 'if'. */
-	printk(KERN_ERR "printing data of superblock-bh\n");
-	print_bh(sb, bh, 0, EXT4_BLOCK_SIZE(sb));
+	if (!silent) {
+		printk(KERN_ERR "printing data of superblock-bh\n");
+		print_bh(sb, bh, 0, EXT4_BLOCK_SIZE(sb));
+	}
 	/* for debugging */
 
 	if (!silent)

@@ -79,13 +79,15 @@ static inline u64 fudge_factor(u64 val, u32 numer, u32 denom)
 	u64 result = val;
 
 	if (val) {
-		u64 temp = -1UL;
+		u64 temp = U64_MAX;
 
 		do_div(temp, val);
 		if (temp > numer) {
 			/* no overflow, so we can do the operation*/
 			result = (val * (u64)numer);
 			do_div(result, denom);
+		} else {
+			pr_warn("Overflow, skip fudge factor\n");
 		}
 	}
 	return result;
@@ -936,7 +938,7 @@ static u32 mdss_mdp_calc_prefill_line_time(struct mdss_mdp_ctl *ctl,
 {
 	u32 prefill_us = 0;
 	u32 prefill_amortized = 0;
-	struct mdss_data_type *mdata;
+	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
 	struct mdss_mdp_mixer *mixer;
 	struct mdss_panel_info *pinfo;
 	u32 fps, v_total;
@@ -2347,10 +2349,12 @@ static void mdss_mdp_ctl_perf_update(struct mdss_mdp_ctl *ctl,
 	if (update_clk) {
 		ATRACE_INT("mdp_clk", clk_rate);
 #if defined(CONFIG_SEC_MSM8917_PROJECT)
-#if defined(CONFIG_SEC_J6PRIMELTE_PROJECT)|| defined(CONFIG_SEC_J4PRIMELTE_PROJECT) || defined(CONFIG_SEC_J4CORELTE_PROJECT)
+#if defined(CONFIG_SEC_J6PRIMELTE_PROJECT)|| defined(CONFIG_SEC_J4PRIMELTE_PROJECT) || defined(CONFIG_SEC_J4CORELTE_PROJECT)  || defined(CONFIG_SEC_ON5XLLTE_PROJECT)
 /*To do : Case:03611842 ongoing.*/
 		if (clk_rate == 100000000)
 			clk_rate = 145450000;
+		else if (clk_rate == 80000000)
+			clk_rate = 100000000;
 #else
 /*Case:03521199: New CR 2260689*/
 		if (clk_rate == 80000000)
@@ -4338,9 +4342,11 @@ void mdss_mdp_check_ctl_reset_status(struct mdss_mdp_ctl *ctl)
 		return;
 
 	pr_debug("hw ctl reset is set for ctl:%d\n", ctl->num);
-	status = mdss_mdp_poll_ctl_reset_status(ctl, 5);
+	/* poll for at least ~1 frame */
+	status = mdss_mdp_poll_ctl_reset_status(ctl, 320);
 	if (status) {
-		pr_err("hw recovery is not complete for ctl:%d\n", ctl->num);
+		pr_err("hw recovery is not complete for ctl:%d status:0x%x\n",
+			ctl->num, status);
 		MDSS_XLOG_TOUT_HANDLER("mdp", "vbif", "vbif_nrt", "dbg_bus",
 			"vbif_dbg_bus", "panic");
 	}

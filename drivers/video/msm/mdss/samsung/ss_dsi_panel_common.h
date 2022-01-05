@@ -67,14 +67,24 @@ Copyright (C) 2012, Samsung Electronics. All rights reserved.
 #include "ss_dsi_panel_sysfs.h"
 #include "ss_dsi_panel_debug.h"
 
+#include "ss_ddi_poc_common.h"
 #include "ss_self_display_common.h"
 
 #include <linux/sec_debug.h>
+
+#if defined(CONFIG_SEC_INCELL)
+#include <linux/sec_incell.h>
+#endif
 
 #define LCD_DEBUG(X, ...) pr_debug("[MDSS] %s : "X, __func__, ## __VA_ARGS__)
 #define LCD_INFO(X, ...) pr_info("[MDSS] %s : "X, __func__, ## __VA_ARGS__)
 #define LCD_INFO_ONCE(X, ...) pr_info_once("[MDSS] %s : "X, __func__, ## __VA_ARGS__)
 #define LCD_ERR(X, ...) pr_err("[MDSS] %s : "X, __func__, ## __VA_ARGS__)
+
+#define GFX_DEBUG(X, ...) pr_debug("[KGSL] %s : "X, __func__, ## __VA_ARGS__)
+#define GFX_INFO(X, ...) pr_info("[KGSL] %s : "X, __func__, ## __VA_ARGS__)
+#define GFX_INFO_ONCE(X, ...) pr_info_once("[KGSL] %s : "X, __func__, ## __VA_ARGS__)
+#define GFX_ERR(X, ...) pr_err("[KGSL] %s : "X, __func__, ## __VA_ARGS__)
 
 #define MAX_PANEL_NAME_SIZE 100
 
@@ -192,6 +202,7 @@ enum mipi_samsung_tx_cmd_list {
 	TX_HBM_OFF,
 	TX_AID,
 	TX_AID_SUBDIVISION,
+	TX_ACL_PERCENT,
 	TX_ACL_ON,
 	TX_ACL_OFF,
 	TX_ELVSS,
@@ -263,19 +274,28 @@ enum mipi_samsung_tx_cmd_list {
 
 	/* START POC CMDS */
 	TX_POC_CMD_START,
-	TX_POC_WRITE_1BYTE,
-	TX_POC_ERASE,
+	TX_POC_KEY_ENABLE,
+	TX_POC_KEY_DISABLE,
+	TX_POC_ENABLE,
+	TX_POC_DISABLE,
+	TX_POC_ERASE,			/* ERASE */
 	TX_POC_ERASE1,
-	TX_POC_PRE_WRITE,
-	TX_POC_WRITE_CONTINUE,
-	TX_POC_WRITE_CONTINUE2,
-	TX_POC_WRITE_CONTINUE3,
-	TX_POC_WRITE_END,
+	TX_POC_PRE_ERASE_SECTOR,
+	TX_POC_ERASE_SECTOR,
+	TX_POC_POST_ERASE_SECTOR,
+	TX_POC_PRE_WRITE,		/* WRITE */
+	TX_POC_WRITE_LOOP_START,
+	TX_POC_WRITE_LOOP_DATA_ADD,
+	TX_POC_WRITE_LOOP_1BYTE,
+	TX_POC_WRITE_LOOP_256BYTE,
+	TX_POC_WRITE_LOOP_END,
 	TX_POC_POST_WRITE,
-	TX_POC_PRE_READ,
+	TX_POC_PRE_READ,		/* READ */
+	TX_POC_PRE_READ2,
 	TX_POC_READ,
 	TX_POC_POST_READ,
 	TX_POC_REG_READ_POS,
+	TX_POC_COMP,			/* POC COMP */
 	TX_POC_CMD_END,
 	/* END POC CMDS */
 
@@ -314,6 +334,7 @@ enum mipi_samsung_rx_cmd_list {
 	RX_POC_READ,
 	RX_POC_STATUS,
 	RX_POC_CHECKSUM,
+	RX_POC_MCA_CHECK,
 	RX_GCT_CHECKSUM,
 	RX_SELF_DISP_DEBUG,
 	RX_LDI_LOG,
@@ -512,6 +533,9 @@ struct samsung_display_dtsi_data {
 	/* Backlight IC discharge delay */
 	int blic_discharging_delay_tft;
 	int cabc_delay;
+
+	/* UX color bit support */
+	int ux_bit_support;
 };
 
 struct samsung_mdnie_tune_data {
@@ -694,7 +718,8 @@ struct panel_func {
 	void (*samsung_set_copr_sum)(struct samsung_display_driver_data *vdd);
 	void (*samsung_copr_enable)(struct samsung_display_driver_data *vdd, int enable);
 
-	int (*samsung_poc_ctrl)(struct samsung_display_driver_data *vdd, u32 cmd);
+	/* POC */
+	int (*samsung_poc_ctrl)(struct samsung_display_driver_data *vdd, u32 cmd, const char *buf);
 };
 
 struct samsung_register_info {
@@ -754,6 +779,7 @@ enum {
 	POC_OP_ERASE_WRITE_IMG,
 	POC_OP_ERASE_WRITE_TEST,
 	POC_OP_BACKUP,
+	POC_OP_ERASE_SECTOR = 7,
 	POC_OP_CHECKSUM,
 	POC_OP_CHECK_FLASH,
 	POC_OP_SET_FLASH_WRITE,
@@ -813,9 +839,41 @@ struct POC {
 	u32 rpos;
 	u32 rsize;
 
-	u32 erase_delay_ms; /* msleep */
-	u32 erase_delay_us; /* usleep */
-	u32 write_delay_us; /* usleep */
+	u32 erase_delay_ms;
+	int image_size;
+
+	/* ERASE */
+	int er_try_cnt;
+	int er_fail_cnt;
+	u32 erase_delay_us;
+	int erase_sector_addr_idx[3];
+
+	/* WRITE */
+	int wr_try_cnt;
+	int wr_fail_cnt;
+	u32 write_delay_us;
+	int write_loop_cnt;
+	int write_data_size;
+	int write_addr_idx[3];
+
+	/* READ */
+	int rd_try_cnt;
+	int rd_fail_cnt;
+	u32 read_delay_us;
+	int read_addr_idx[3];
+
+	/* MCA (checksum) */
+	u8 *mca_data;
+	int mca_size;
+
+	/* POC Function */
+	int (*poc_write)(struct samsung_display_driver_data *vdd, u8 *data, u32 pos, u32 size);
+	int (*poc_read)(struct samsung_display_driver_data *vdd, u8 *buf, u32 pos, u32 size);
+	int (*poc_erase)(struct samsung_display_driver_data *vdd, u32 erase_pos, u32 erase_size, u32 target_pos);
+	void (*poc_comp)(struct samsung_display_driver_data *vdd);
+	int (*check_read_case)(struct samsung_display_driver_data *vdd);
+	int read_case;
+	bool need_sleep_in;
 };
 
 struct samsung_display_driver_data {
@@ -1019,6 +1077,8 @@ struct samsung_display_driver_data {
 
 #ifdef CONFIG_DISPLAY_USE_INFO
 	struct notifier_block dpui_notif;
+	struct notifier_block dpci_notif;
+	u64 dsi_errors; /* report dpci bigdata */
 #endif
 
 	/* COPR */
@@ -1149,6 +1209,10 @@ void mdss_samsung_copr_calc_delayed_work(struct delayed_work *work);
 /* PANEL LPM FUNCTION */
 int mdss_init_panel_lpm_reg_offset(struct mdss_dsi_ctrl_pdata *ctrl, int (*reg_list)[2],
 					struct dsi_panel_cmds *cmd_list[], int list_size);
+int mdss_init_panel_reg_offset(struct mdss_dsi_ctrl_pdata *ctrl,
+		int (*reg_list)[2],
+		struct dsi_panel_cmds *cmd_list[], int list_size);
+
 void mdss_samsung_panel_lpm_ctrl(struct mdss_panel_data *pdata, int enable);
 void mdss_samsung_panel_lpm_hz_ctrl(struct mdss_panel_data *pdata, int aod_ctrl);
 
@@ -1188,6 +1252,7 @@ void update_packet_level_key_enable(struct mdss_dsi_ctrl_pdata *ctrl, struct dsi
 void update_packet_level_key_disable(struct mdss_dsi_ctrl_pdata *ctrl, struct dsi_cmd_desc *packet, int *cmd_cnt, int level_key);
 int mdss_samsung_single_transmission_packet(struct dsi_panel_cmds *cmds);
 void mdss_samsung_panel_brightness_init(struct samsung_display_driver_data *vdd);
+bool is_hbm_level(struct samsung_display_driver_data *vdd, int ndx);
 
 /* HMT BRIGHTNESS */
 int mdss_samsung_brightness_dcs_hmt(struct mdss_dsi_ctrl_pdata *ctrl, int level);

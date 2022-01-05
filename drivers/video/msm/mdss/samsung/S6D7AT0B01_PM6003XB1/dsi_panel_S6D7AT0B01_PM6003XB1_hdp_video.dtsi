@@ -35,22 +35,22 @@
 		qcom,mdss-dsi-on-command = [
 
 			/* PASS WD */
-			39 01 00 00 00 00 03 F0 5A 5A
-			39 01 00 00 00 00 03 FC 5A 5A
-			39 01 00 00 00 00 03 9F 5A 5A
+			39 00 00 00 00 00 03 F0 5A 5A
+			39 00 00 00 00 00 03 FC 5A 5A
+			39 00 00 00 00 00 03 9F 5A 5A
 
 			/* TDDI_CTL1 */
-			39 01 00 00 00 00 02 71 0A
+			39 00 00 00 00 00 02 71 0A
 
 			/* TDDI Control3 */
-			39 01 00 00 00 00 07 73 B0 32 10 
+			39 00 00 00 00 00 07 73 B0 32 10
 									01 48 00
 
 			/* DISP_RSEL */
-			39 01 00 00 00 00 05 B1 11 32 11 00
+			39 00 00 00 00 00 05 B1 11 32 11 00
 
 			/* Display Control 1  */
-			39 01 00 00 00 00 11 B3 01 B9 07
+			39 00 00 00 00 00 11 B3 01 B9 07
 									70 18 68 08
 									08 07 80 00
 									E7 00 E7 00
@@ -58,7 +58,7 @@
 
 
 			/* DISP_TSC1  */
-			39 01 00 00 00 00 58 BA 01 13 02
+			39 00 00 00 00 00 58 BA 01 13 02
 									13 02 13 02
 									88 02 58 00
 									84 08 43 03
@@ -82,10 +82,10 @@
 									00 00 00 00
 
 			/* Abnormal Control  */
-			39 01 00 00 00 00 05 BB 21 68 00 00
+			39 00 00 00 00 00 05 BB 21 68 00 00
 
 			/* GOUTLR_CTL  */
-			39 01 00 00 00 00 2D EC 00 08 00
+			39 00 00 00 00 00 2D EC 00 08 00
 									07 00 15 14
 									02 0F 0D 0C
 									0E 05 09 06
@@ -99,7 +99,7 @@
 									03
 
 			/* GG_GSP  */
-			39 01 00 00 00 00 47 ED 12 40 00
+			39 00 00 00 00 00 47 ED 12 40 00
 									15 11 00 0C
 									13 40 00 15
 									11 00 0C 00
@@ -119,7 +119,7 @@
 									00 00 00
 
 			/* GG_GCK */
-			39 01 00 00 00 00 25 EE 12 C4 80
+			39 00 00 00 00 00 25 EE 12 C4 80
 									19 05 06 00
 									00 68 12 C5
 									80 19 05 06
@@ -131,7 +131,7 @@
 									6A
 
 			/* GG_CTRL */
-			39 01 00 00 00 00 3C EF 00 00 00
+			39 00 00 00 00 00 3C EF 00 00 00
 									00 00 0C 40
 									76 76 10 18
 									09 80 00 08
@@ -148,28 +148,28 @@
 									00 00 00 00
 
 			/* Source Control */
-			39 01 00 00 00 00 1B F2 48 23 33
+			39 00 00 00 00 00 1B F2 48 23 33
 									33 E3 44 43
 									00 01 00 00
 									0D 84 00 80
 									00 A6 1E 08
 									03 34 00 00
 									00 00 00
-			
+
 			/* Address Shift */
-			39 01 00 00 00 00 02 B0 02 
-			
+			39 00 00 00 00 00 02 B0 02
+
 			/* PWRCTL */
-			39 01 00 00 00 00 19 F4 00 17 8A
+			39 00 00 00 00 00 19 F4 00 17 8A
 									DE DE 05 0A
 									16 95 55 59
 									3B 10 55 15
 									26 FA 00 00
 									00 00 00 00
-									00 
-			
+									00
+
 			/* ETC */
-			39 01 00 00 00 00 32 F9 88 88 00
+			39 00 00 00 00 00 32 F9 88 88 00
 									C0 C0 04 7A
 									00 0D C0 94
 									0C 4B A0 1F
@@ -184,20 +184,20 @@
 									FF 00
 
 			/* EDS TEST 0 */
-			39 01 00 00 00 00 13 FE 02 00 01
+			39 00 00 00 00 00 13 FE 02 00 01
 									4C 00 00 00
 									60 00 03 00
 									00 00 00 00
 									00 00 00
 
 			/* CABC Control 1 */
-			39 01 00 00 00 00 10 C0 03 08 29
+			39 00 00 00 00 00 10 C0 03 08 29
 									01 00 80 01
 									24 0F FF 30
 									40 86 DA 8E
 
 			/* CABC Control 2 */
-			39 01 00 00 00 00 25 C1 E5 A6 80
+			39 00 00 00 00 00 25 C1 E5 A6 80
 									25 66 A7 A7
 									AC B3 B3 B3
 									B3 BA BD BF
@@ -209,15 +209,15 @@
 									FF
 
 			/* ESDFG*/
-			39 01 00 00 00 00 18 C8 00 24 00
+			39 00 00 00 00 00 18 C8 00 24 00
 									41 3A 00 00
 									00 B0 02 00
 									00 00 85 48
 									00 00 00 00
-									00 00 40 4B 
+									00 00 40 4B
 
 			/*GAMMA*/
-			39 01 00 00 00 00 23 E8 02 0D 17
+			39 00 00 00 00 00 23 E8 02 0D 17
 									13 1A 20 1F
 									21 27 2D 2D
 									2A 29 27 27
@@ -226,28 +226,34 @@
 									1F 21 27 27
 									27 2A 29 27
 									27 2E 34
-									
+
 			/* WRDISBV */
-			39 01 00 00 00 00 03 51 FF F1
-			
+			39 00 00 00 00 00 03 51 FF F1
+
 			/* WRCTRLD */
-			39 01 00 00 00 00 02 53 24
-			
+			39 00 00 00 00 00 02 53 24
+
 			/* WRCABC */
-			39 01 00 00 00 00 02 55 00
+			39 00 00 00 00 00 02 55 00
 
 			/* Sleep Out */
-			05 01 00 00 78 00 02 11 00 /* Wait 120 ms */
+			39 00 00 00 00 00 02 11 00
+
+			/*password unlock*/
+			39 00 00 00 00 00 03 F0 A5 A5
+			39 00 00 00 00 00 03 FC A5 A5
+			39 01 00 00 78 00 03 9F A5 A5
 		];
+
 		qcom,mdss-dsi-off-command = [
 			/*password unlock*/
-			39 01 00 00 00 00 03 9F 5A 5A
+			39 00 00 00 00 00 03 9F 5A 5A
 
 			/* Display Off and Wait 1 frame = 16.67 ms minimum */
-			05 01 00 00 14 00 02 28 00
+			39 00 00 00 00 00 02 28 00
+			39 00 00 00 00 00 02 10 00
 
-			/* Sleep in and Wait 5 frame =~ 90 ms minimum */
-			05 01 00 00 5A 00 02 10 00
+			39 01 00 00 54 00 03 9F A5 A5 /* Sleep in and Wait 5 frame =~ 84 ms minimum */
 		];
 
 		qcom,mdss-dsi-h-sync-skew = <0>;
@@ -263,9 +269,9 @@
 		qcom,mdss-brightness-max-level = <256>;
 		qcom,mdss-dsi-panel-type = "dsi_video_mode";
 		qcom,mdss-dsi-h-sync-pulse = <1>;
-		/*qcom,mdss-dsi-hfp-power-mode; 
-		qcom,mdss-dsi-hbp-power-mode; */ 
-		qcom,mdss-dsi-bllp-eof-power-mode; 
+		/*qcom,mdss-dsi-hfp-power-mode;
+		qcom,mdss-dsi-hbp-power-mode; */
+		qcom,mdss-dsi-bllp-eof-power-mode;
 		qcom,mdss-dsi-bllp-power-mode;
 		qcom,mdss-dsi-traffic-mode = "burst_mode";
 		qcom,mdss-dsi-pixel-packing = "loose";
@@ -279,14 +285,14 @@
 		qcom,mdss-dsi-mdp-trigger = "none";
 		qcom,mdss-dsi-dma-trigger = "trigger_sw";
 		qcom,mdss-dsi-panel-framerate = <60>;
-		/*qcom,mdss-dsi-panel-clockrate = <509000000>;*/
+/*		qcom,mdss-dsi-panel-clockrate = <509000000>;*/
 		qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
 		qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
 		qcom,mdss-pan-physical-width-dimension = <66>;
 		qcom,mdss-pan-physical-height-dimension = <137>;
 		qcom,mdss-dsi-rx-eot-ignore;
 		qcom,mdss-dsi-tx-eot-append;
-		qcom,mdss-dsi-reset-sequence = <1 15>, <0 10>, <1 10>;
+		qcom,mdss-dsi-reset-sequence = <1 15>, <0 1>, <1 5>;
 		qcom,mdss-dsi-init-delay-us = <1000>;
 
 /*
@@ -303,24 +309,17 @@
 		samsung,enter_hbm_lux = <20000>;
 
 		qcom,mdss-dsi-force-clock-lane-hs;
+		/*panel swap test*/
+		samsung,support_factory_panel_swap;
 
 		samsung,packet_size_tx_cmds_revA = [
 			37 01 00 00 00 00 02 07 00
 		];
 
 		samsung,display_on_tx_cmds_revA = [
-
-			/* Display On and Wait 1 frame = 16.67 ms minimum */
-			05 01 00 00 14 00 02 29 00
-			
-			 /* TE on */
-			15 01 00 00 00 00 02 35 00
-
-			/*password unlock*/
-			39 01 00 00 00 00 03 F0 A5 A5
-			39 01 00 00 00 00 03 FC A5 A5
-			39 01 00 00 00 00 03 9F A5 A5
-
+			39 00 00 00 00 00 03 9F 5A 5A
+			39 00 00 00 00 00 02 29 00
+			39 01 00 00 11 00 03 9F A5 A5 			/* Display On and Wait 1 frame = 16.67 ms minimum=>0*/
 		];
 
 		samsung,display_off_tx_cmds_revA = [05 01 00 00 00 00 02 28 00];
@@ -362,7 +361,7 @@
 			39 01 00 00 00 00 03 FC 5A 5A
 			39 01 00 00 00 00 03 9F 5A 5A
 
-			39 01 00 00 00 00 02 55 01
+			39 01 00 00 00 00 02 55 02
 
 			39 01 00 00 00 00 03 F0 A5 A5
 			39 01 00 00 00 00 03 FC A5 A5
@@ -372,7 +371,7 @@
 			39 01 00 00 00 00 03 F0 5A 5A
 			39 01 00 00 00 00 03 FC 5A 5A
 			39 01 00 00 00 00 03 9F 5A 5A
-		
+
 			39 01 00 00 00 00 02 55 00
 
 			39 01 00 00 00 00 03 F0 A5 A5
@@ -380,7 +379,7 @@
 			39 01 00 00 00 00 03 9F A5 A5
 		];
 
-		
+
 		/*
 		* ************************************************************************************************************************
 		* Scaled level to index mappings
@@ -389,7 +388,7 @@
 		samsung,candela_map_table_revA = <
 		/*<idx>	  <from>  <till> <scaled_level> */
 			0		0		0		0
-			1		1		1		0
+			1		1		1		20
 			2		2		2		20
 			3		3		3		28
 			4		4		4		36

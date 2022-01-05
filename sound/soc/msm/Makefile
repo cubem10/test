@@ -4,9 +4,11 @@ snd-soc-hostless-pcm-objs := msm-pcm-hostless.o
 obj-$(CONFIG_SND_SOC_MSM_HOSTLESS_PCM) += snd-soc-hostless-pcm.o
 
 obj-$(CONFIG_SND_SOC_MSM_QDSP6V2_INTF) += qdsp6v2/
+obj-$(CONFIG_SND_SOC_QDSP6V2_VM) += qdsp6v2/
 
 snd-soc-qdsp6v2-objs := msm-dai-fe.o
 obj-$(CONFIG_SND_SOC_QDSP6V2) += snd-soc-qdsp6v2.o
+obj-$(CONFIG_SND_SOC_QDSP6V2_VM) += snd-soc-qdsp6v2.o
 
 #for APQ8084 sound card driver
 snd-soc-apq8084-objs := apq8084.o
@@ -23,6 +25,10 @@ obj-$(CONFIG_SND_SOC_MSM8994) += snd-soc-msm8994.o
 # for MSM8996 sound card driver
 snd-soc-msm8996-objs := msm8996.o apq8096-auto.o apq8096-i2c.o
 obj-$(CONFIG_SND_SOC_MSM8996) += snd-soc-msm8996.o
+
+# for MSM8996 virtualization sound card driver
+snd-soc-msm8996-vm-objs := apq8096-auto.o
+obj-$(CONFIG_SND_SOC_MSM8996_VM) += snd-soc-msm8996-vm.o
 
 # for MSM 8x16/8952 common obj for sound card driver
 snd-soc-msm8x16-audio-pinctl-objs := msm-audio-pinctrl.o
@@ -51,7 +57,7 @@ snd-soc-mdm9607-objs := mdm9607.o
 obj-$(CONFIG_SND_SOC_MDM9607) += snd-soc-mdm9607.o
 
 # for MSM 8909 sound card driver
-snd-soc-msm8909-objs := msm8952.o msm-audio-pinctrl.o apq8009-i2s-ext-codec.o
+snd-soc-msm8909-objs := msm8952.o msm-audio-pinctrl.o apq8009-i2s-ext-codec.o msm_bg.o msm8909.o
 obj-$(CONFIG_SND_SOC_MSM8909) += snd-soc-msm8909.o
 
 # for MDM9640 sound card driver

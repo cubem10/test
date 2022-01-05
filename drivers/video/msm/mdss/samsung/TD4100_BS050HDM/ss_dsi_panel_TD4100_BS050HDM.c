@@ -77,6 +77,8 @@ static int mdss_panel_off_pre(struct mdss_dsi_ctrl_pdata *ctrl)
 		pr_err("%s: Invalid data ctrl : 0x%zx vdd : 0x%zx", __func__, (size_t)ctrl, (size_t)vdd);
 		return false;
 	}
+	/* Disable PWM_EN */
+	ssreg_enable_blic(false);
 
 	pr_info("%s %d\n", __func__, ctrl->ndx);
 	return true;

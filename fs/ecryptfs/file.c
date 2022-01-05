@@ -33,6 +33,7 @@
 #include <linux/fs_stack.h>
 #include <linux/aio.h>
 #include <linux/ecryptfs.h>
+#include <linux/xattr.h>
 #include "ecryptfs_kernel.h"
 
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
@@ -419,8 +420,8 @@ static int ecryptfs_open(struct inode *inode, struct file *file)
 				__func__, ecryptfs_dentry->d_name.name, crypt_stat->flags);
 #endif
 
-		dlp_len = ecryptfs_getxattr_lower(
-			ecryptfs_dentry_to_lower(ecryptfs_dentry),
+		dlp_len = vfs_getxattr(
+			ecryptfs_dentry,
 			KNOX_DLP_XATTR_NAME,
 			&dlp_data, sizeof(dlp_data));
 				

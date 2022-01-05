@@ -43,7 +43,7 @@ struct s2mu005_led_data * g_led_datas[S2MU005_LED_MAX];
 int ta_attached = 0;
 int sdp_attached = 0;
 
-#if defined(CONFIG_SEC_J6PRIMELTE_PROJECT) || defined(CONFIG_SEC_J4PRIMELTE_PROJECT)
+#if defined(CONFIG_SEC_J6PRIMELTE_PROJECT) || defined(CONFIG_SEC_J4PRIMELTE_PROJECT)|| defined(CONFIG_SEC_J4CORELTE_PROJECT)
 extern int factory_mode;
 #endif
 
@@ -94,7 +94,7 @@ int ss_flash_led_torch_on(ext_pmic_flash_ctrl_t *flash_ctrl);
 int ss_flash_led_turn_off(ext_pmic_flash_ctrl_t *flash_ctrl);
 int ss_torch_set_flashlight(ext_pmic_flash_ctrl_t *flash_ctrl, bool isFlashlight);
 static void ta_attached_torch_led_on_off_conf(int value);
-static void s2mu005_led_enable_ctrl(int mode);
+static void s2mu005_led_enable_ctrl(int mode, int state);
 int s2mu005_led_mode_ctrl(int enable_mode, int state);
 
 #ifdef CONFIG_SEC_ON5XLLTE_PROJECT
@@ -317,7 +317,7 @@ static void led_set(struct s2mu005_led_data *led_data)
 
 		/* torch mode off sequence */
 		if (ta_attached) {
-#if defined(CONFIG_SEC_J6PRIMELTE_PROJECT) || defined(CONFIG_SEC_J4PRIMELTE_PROJECT)
+#if defined(CONFIG_SEC_J6PRIMELTE_PROJECT) || defined(CONFIG_SEC_J4PRIMELTE_PROJECT)|| defined(CONFIG_SEC_J4CORELTE_PROJECT)
 			if (!factory_mode) {
 				ret = s2mu005_update_reg(led_data->i2c,
 					S2MU005_REG_FLED_CTRL1, 0x00, 0x80);
@@ -503,7 +503,7 @@ static int s2mu005_led_setup(struct s2mu005_led_data *led_data)
 	if (ret < 0)
 		goto out;
 
-#if defined(CONFIG_SEC_J6PRIMELTE_PROJECT) || defined(CONFIG_SEC_J4PRIMELTE_PROJECT)
+#if defined(CONFIG_SEC_J6PRIMELTE_PROJECT) || defined(CONFIG_SEC_J4PRIMELTE_PROJECT)|| defined(CONFIG_SEC_J4CORELTE_PROJECT)
 	/* factory mode additional setting */
 	if (factory_mode) {
                	/* In UART testing, Power will come from external power source instead of battery
@@ -596,7 +596,9 @@ int ss_flash_led_torch_on(ext_pmic_flash_ctrl_t *flash_ctrl)
         }
         else if(flash_ctrl->index) {
             CDBG("Front torch on");
-            return s2mu005_led_mode_ctrl(FLED_ENABLE_FRONT, S2MU005_FLED_MODE_MOVIE);
+            rc = s2mu005_led_mode_ctrl(FLED_ENABLE_FRONT, S2MU005_FLED_MODE_MOVIE);
+            ss_flash_register_dump();
+            return rc;
         }
 
         return 0;	
@@ -604,17 +606,23 @@ int ss_flash_led_torch_on(ext_pmic_flash_ctrl_t *flash_ctrl)
 
 int ss_flash_led_turn_off(ext_pmic_flash_ctrl_t *flash_ctrl)
 {
-        if(assistive_light) {
+        int rc = 0;
+
+        if(!flash_ctrl->index && assistive_light) {
            pr_err("Flash is controlled by sysfs\n");
            return 0;
         }        
 	if (!flash_ctrl->index) {
              CDBG("Rear led turn off");
-             return s2mu005_led_mode_ctrl(FLED_ENABLE_REAR, S2MU005_FLED_MODE_OFF);
+             rc = s2mu005_led_mode_ctrl(FLED_ENABLE_REAR, S2MU005_FLED_MODE_OFF);
+             ss_flash_register_dump();
+             return rc;
         }
 	else if(flash_ctrl->index) {
              CDBG("Front led turn off");
-             return s2mu005_led_mode_ctrl(FLED_ENABLE_FRONT, S2MU005_FLED_MODE_OFF);
+             rc = s2mu005_led_mode_ctrl(FLED_ENABLE_FRONT, S2MU005_FLED_MODE_OFF);
+             ss_flash_register_dump();
+             return rc;
         }
    
         return 0;	
@@ -656,8 +664,10 @@ int ss_torch_set_flashlight(ext_pmic_flash_ctrl_t *flash_ctrl, bool isFlashlight
 		    return s2mu005_update_reg(client, S2MU005_REG_FLED_CH1_CTRL1,g_led_datas[S2MU005_FLASH_LED]->preflash_brightness, S2MU005_TORCH_IOUT_MASK);
 		}
 	} else if (flash_ctrl->flash_current_mA > 0) {
-		CDBG("%s Front brightness level = %d \n", __func__, S2MU005_TORCH_BRIGHTNESS(flash_ctrl->flash_current_mA));
-		return s2mu005_update_reg(client, S2MU005_REG_FLED_CH2_CTRL1, S2MU005_TORCH_BRIGHTNESS(flash_ctrl->flash_current_mA), S2MU005_TORCH_IOUT_MASK);
+                struct s2mu005_led_data *led_data = g_led_datas[S2MU005_TORCH_LED];
+                led_data->torch_brightness = S2MU005_TORCH_BRIGHTNESS(flash_ctrl->flash_current_mA);
+		CDBG("%s Front brightness level = %d \n", __func__, led_data->torch_brightness);
+		return s2mu005_update_reg(client, S2MU005_REG_FLED_CH2_CTRL1, led_data->torch_brightness, S2MU005_TORCH_IOUT_MASK);
 	}
 	return 0;
 }EXPORT_SYMBOL_GPL(ss_torch_set_flashlight);
@@ -674,7 +684,7 @@ int msm_fled_torch_on_s2mu005(ext_pmic_flash_ctrl_t *flash_ctrl)
         int rc = 0;
         CDBG("%s E", __func__);
 
-        if(assistive_light) {
+        if(!flash_ctrl->index && assistive_light) {
            pr_err("Flash is controlled by sysfs\n");
            return 0;
         }
@@ -682,9 +692,14 @@ int msm_fled_torch_on_s2mu005(ext_pmic_flash_ctrl_t *flash_ctrl)
         ss_torch_set_flashlight(flash_ctrl, true);
 
         //Turn ON Torch
-	if(flash_ctrl->flash_current_mA == -1) {//default
+#if !defined(CONFIG_SEC_ON5XLLTE_PROJECT)
+        if(flash_ctrl->flash_current_mA == -1) {//default
              rc = ss_flash_led_torch_on(flash_ctrl);
         }
+#else
+        rc = ss_flash_led_torch_on(flash_ctrl);
+#endif
+
         CDBG("%s X", __func__);
         return rc;
 }EXPORT_SYMBOL_GPL(msm_fled_torch_on_s2mu005);
@@ -702,7 +717,7 @@ static void ta_attached_torch_led_on_off_conf(int value)
 			pr_err("%s : CHGIN_ENGH = 1 fail\n", __func__);
 	}
 
-#if defined(CONFIG_SEC_J6PRIMELTE_PROJECT) || defined(CONFIG_SEC_J4PRIMELTE_PROJECT)
+#if defined(CONFIG_SEC_J6PRIMELTE_PROJECT) || defined(CONFIG_SEC_J4PRIMELTE_PROJECT)|| defined(CONFIG_SEC_J4CORELTE_PROJECT)
 	if (!value && !factory_mode) { // torch off
 		ret = s2mu005_update_reg(g_led_datas[S2MU005_FLASH_LED]->i2c,
 			S2MU005_REG_FLED_CTRL1, 0x00, 0x80);
@@ -724,6 +739,7 @@ static void ta_attached_torch_led_on_off_conf(int value)
 int s2mu005_led_mode_ctrl(int enable_mode, int state)
 {
 	struct s2mu005_led_data *led_data = g_led_datas[S2MU005_FLASH_LED];
+        struct i2c_client *client = led_data->i2c;
 	int gpio_torch = led_data->torch_pin;
 	int gpio_flash = led_data->flash_pin;
 
@@ -735,7 +751,7 @@ int s2mu005_led_mode_ctrl(int enable_mode, int state)
 	}
 
 	if(enable_mode != FLED_ENABLE_NULL) {
-		s2mu005_led_enable_ctrl(enable_mode);
+		s2mu005_led_enable_ctrl(enable_mode, state);
 	}
 
 	devm_gpio_request(led_data->cdev.dev, gpio_torch,
@@ -749,6 +765,7 @@ int s2mu005_led_mode_ctrl(int enable_mode, int state)
 			gpio_direction_output(gpio_torch, 0);
 			gpio_direction_output(gpio_flash, 0);
 			ta_attached_torch_led_on_off_conf(0);
+                        s2mu005_update_reg(client, CH_FLASH_TORCH_EN, S2MU005_FLASH_TORCH_OFF, 0xFF);
 			break;
 		case S2MU005_FLED_MODE_PREFLASH:
 			gpio_direction_output(gpio_torch, 1);
@@ -769,19 +786,32 @@ int s2mu005_led_mode_ctrl(int enable_mode, int state)
 
 	return 0;
 }
-static void s2mu005_led_enable_ctrl(int mode)
+static void s2mu005_led_enable_ctrl(int mode, int state)
 {
 	int value;
+        u8 fled_status = 0;
 	struct i2c_client * client;
 	client = g_led_datas[S2MU005_FLASH_LED]->i2c;
-	if(mode == FLED_ENABLE_FRONT) {
-		value = S2MU005_FRONT_FLASH_ON_GPIO | S2MU005_FRONT_TORCH_ON_GPIO;
-		s2mu005_update_reg(client, CH_FLASH_TORCH_EN, value, 0xFF);
-	}
-	else if (mode == FLED_ENABLE_REAR) {
-		value = S2MU005_FLASH_ON_GPIO | S2MU005_TORCH_ON_GPIO;
-		s2mu005_update_reg(client, CH_FLASH_TORCH_EN, value, 0xFF);
-	}
+         
+        s2mu005_read_reg(client,S2MU005_REG_FLED_STATUS, &fled_status);
+
+        if(state == S2MU005_FLED_MODE_OFF) {
+	    if(mode == FLED_ENABLE_FRONT && (fled_status == 0x20 || fled_status == 0x10)) {
+		 value = S2MU005_FRONT_FLASH_ON_GPIO | S2MU005_FRONT_TORCH_ON_GPIO;
+		 s2mu005_update_reg(client, CH_FLASH_TORCH_EN, value, 0xFF);
+	    } else if (mode == FLED_ENABLE_REAR && (fled_status == 0x80 || fled_status == 0x40)) {
+		 value = S2MU005_FLASH_ON_GPIO | S2MU005_TORCH_ON_GPIO;
+		 s2mu005_update_reg(client, CH_FLASH_TORCH_EN, value, 0xFF);
+            }
+	} else {
+            if(mode == FLED_ENABLE_FRONT) {
+                 value = S2MU005_FRONT_FLASH_ON_GPIO | S2MU005_FRONT_TORCH_ON_GPIO;
+                 s2mu005_update_reg(client, CH_FLASH_TORCH_EN, value, 0xFF);
+            } else if (mode == FLED_ENABLE_REAR) {
+                 value = S2MU005_FLASH_ON_GPIO | S2MU005_TORCH_ON_GPIO;
+                 s2mu005_update_reg(client, CH_FLASH_TORCH_EN, value, 0xFF);
+            }
+        }
 }
 
 static ssize_t rear_flash_show(struct device *dev,
@@ -850,6 +880,28 @@ static ssize_t rear_flash_store(struct device *dev,
 			assistive_light = true;
 			break;
 		/* 5-level brightness for torch */
+#if defined(CONFIG_SEC_J6PRIMELTE_PROJECT) || defined(CONFIG_SEC_J4PRIMELTE_PROJECT) || defined(CONFIG_SEC_J4CORELTE_PROJECT)
+		case 1001:
+                        brightness = S2MU005_TORCH_OUT_I_25MA;
+                        assistive_light = true;
+                        break;
+                case 1002:
+                        brightness = S2MU005_TORCH_OUT_I_50MA;
+                        assistive_light = true;
+                        break;
+                case 1004:
+                        brightness = S2MU005_TORCH_OUT_I_100MA;
+                        assistive_light = true;
+                        break;
+                case 1006:
+                        brightness = S2MU005_TORCH_OUT_I_150MA;
+                        assistive_light = true;
+                        break;
+                case 1009:
+                        brightness = S2MU005_TORCH_OUT_I_200MA;
+                        assistive_light = true;
+                        break;
+#else
 		case 1001:
 			brightness = S2MU005_TORCH_OUT_I_25MA;
 			assistive_light = true;
@@ -870,6 +922,7 @@ static ssize_t rear_flash_store(struct device *dev,
 			brightness = S2MU005_TORCH_OUT_I_125MA;
 			assistive_light = true;
 			break;
+#endif
 		default:
 			pr_err("[FLED]%s , Invalid value:%d\n", __func__, value);
 			goto err;
@@ -941,8 +994,12 @@ static ssize_t front_flash_store(struct device *dev,
 		assistive_light = true;
 	} else if (value == 100) {
 		/* Factory mode Turn on Torch */
+#if defined(CONFIG_SEC_J4CORELTE_PROJECT)
+		brightness = 5;
+#else
 		brightness = led_data->torch_brightness + 4;// 150mA ; jtt to be set with wanted  front brightness for factory test
-                assistive_light = true;
+#endif
+        assistive_light = true;
 	} else {
 		pr_err("[FLED]%s , Invalid value:%d\n", __func__, value);
 		goto err;

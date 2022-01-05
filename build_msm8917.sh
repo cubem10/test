@@ -92,6 +92,12 @@ elif [ "$BUILD_COMMAND" == "j4primelte_sea_xtc" ]; then
 	PRODUCT_NAME=j4primeltextc
 	SIGN_MODEL=
 
+elif [ "$BUILD_COMMAND" == "j4primelte_kor_kx" ]; then
+	BUILD_PRODUCT=j4primelte_kor_kx
+	PRODUCT_NAME=j4primeltekx
+	SIGN_MODEL=
+
+
 elif [ "$BUILD_COMMAND" == "j4corelte_mea_open" ]; then
 	BUILD_PRODUCT=j4corelte_mea_open
 	PRODUCT_NAME=j4coreltejx
@@ -211,7 +217,7 @@ PRODUCT_OUT=$BUILD_ROOT_DIR/android/out/target/product/$PRODUCT_NAME
 
 
 SECURE_SCRIPT=$BUILD_ROOT_DIR/buildscript/tools/signclient.jar
-BUILD_CROSS_COMPILE=$BUILD_ROOT_DIR/android/prebuilts/gcc/linux-x86/arm/arm-eabi-4.8/bin/arm-eabi-
+BUILD_CROSS_COMPILE=$BUILD_ROOT_DIR/android/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androidkernel-
 BUILD_JOB_NUMBER=`grep processor /proc/cpuinfo|wc -l`
 
 # Default Python version is 2.7

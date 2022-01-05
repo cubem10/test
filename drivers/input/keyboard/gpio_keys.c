@@ -925,6 +925,7 @@ gpio_keys_get_devtree_pdata(struct device *dev)
 	pdata->rep = !!of_get_property(node, "autorepeat", NULL);
 	pdata->name = of_get_property(node, "input-name", NULL);
 	pdata->use_syscore = of_property_read_bool(node, "use-syscore");
+	pdata->wakeup = of_property_read_bool(node, "gpio-key,wakeup_enable");
 
 	i = 0;
 	for_each_child_of_node(node, pp) {
@@ -1087,6 +1088,9 @@ static int gpio_keys_probe(struct platform_device *pdev)
 			"%s: Unable to export keys/switches, error: %d\n", __func__, error);
 		goto err_create_sysfs;
 	}
+	
+	if (pdata->wakeup)
+		wakeup = 1;
 
 	error = input_register_device(input);
 	if (error) {

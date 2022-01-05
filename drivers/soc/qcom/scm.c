@@ -668,7 +668,7 @@ pid_t pid_from_lkm = -1;
 int scm_call2(u32 fn_id, struct scm_desc *desc)
 {
 	const char* const proca_clients_names[] =
-		{"secure_storage_daemon", "pa_daemon", "wsmd", NULL}; // keep last NULL!
+		{"secure_storage_", "pa_daemon", "proca@1.0-servi", "wsmd", "wsm@1.0-service", NULL}; // keep last NULL!
 	int call_from_proca = 0;
 	int i;
 	int arglen = desc->arginfo & 0xf;

@@ -173,6 +173,11 @@ ifdef CONFIG_SEC_A6PLTE_PROJECT
 fw-shipped-$(CONFIG_SENSORS_A96T3X6) 		+= abov/a96t326_j8plte.fw \
 											   abov/a96t346_j8plte.fw
 endif
+ifdef CONFIG_SEC_J8Y18LTE_PROJECT
+fw-shipped-$(CONFIG_SENSORS_A96T3X6) 		+= abov/a96t346_j8y18lte.fw \
+											   abov/a96t326_j8y18lte.fw \
+											   abov/a96t326_j8y18lte_ym.fw
+endif
 ifdef CONFIG_SEC_GTESY18LTE_PROJECT
 fw-shipped-$(CONFIG_TOUCHSCREEN_ZINITIX_ZT75XX_TCLM) += tsp_zinitix/zt7548_gtes.fw tsp_zinitix/zt7548_gtes_rev00.fw
 endif
@@ -242,6 +247,10 @@ fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_INCELL_TS) += tsp_sec/s6d7at01a01_j4core.fw 
 endif
 
 ifdef CONFIG_SEC_J6PLTE_PROJECT
+fw-shipped-$(CONFIG_TOUCHSCREEN_ZINITIX_ZT75XX_TCLM) += tsp_zinitix/zt7548_j8.fw
+endif
+
+ifdef CONFIG_SEC_J8Y18LTE_PROJECT
 fw-shipped-$(CONFIG_TOUCHSCREEN_ZINITIX_ZT75XX_TCLM) += tsp_zinitix/zt7548_j8.fw
 endif
 

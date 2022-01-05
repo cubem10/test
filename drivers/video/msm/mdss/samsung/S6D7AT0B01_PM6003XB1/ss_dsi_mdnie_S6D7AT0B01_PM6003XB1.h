@@ -832,6 +832,161 @@ static unsigned char GALLERY_2[] = {
 	0x0f, //trans_ctrl scr gamma cs de
 };
 
+static unsigned char CAMERA_SWA_1[] = {
+	0xCF,
+	0x07, //de cs cc 000
+	0x00, //de_gain 10
+	0x00,
+	0xff, //de_maxplus 8
+	0xff, //de_maxminus 8
+	0x01, //cs_gain 10
+	0x60,
+	0x00, //curve_0
+	0x10, //curve_1
+	0x20, //curve_2
+	0x30, //curve_3
+	0x40, //curve_4
+	0x50, //curve_5
+	0x60, //curve_6
+	0x70, //curve_7
+	0x80, //curve_8
+	0x90, //curve_9
+	0xa0, //curve_10
+	0xb0, //curve_11
+	0xc0, //curve_12
+	0xd0, //curve_13
+	0xe0, //curve_14
+	0xf0, //curve_15
+	0x01, //curve_16
+	0x00,
+	0x00, //curve_offset
+	0x00,
+	0x00, //curve_low_x
+	0x00, //curve_low_y
+	0x00, //scr Cr
+	0xff, //scr Rr
+	0xff, //scr Cg
+	0x00, //scr Rg
+	0xff, //scr Cb
+	0x00, //scr Rb
+	0xff, //scr Mr
+	0x00, //scr Gr
+	0x00, //scr Mg
+	0xff, //scr Gg
+	0xff, //scr Mb
+	0x00, //scr Gb
+	0xff, //scr Yr
+	0x00, //scr Br
+	0xff, //scr Yg
+	0x00, //scr Bg
+	0x00, //scr Yb
+	0xff, //scr Bb
+	0xff, //scr Wr
+	0x00, //scr Kr
+	0xf4, //scr Wg
+	0x00, //scr Kg
+	0xfd, //scr Wb
+	0x00, //scr Kb
+};
+
+static unsigned char CAMERA_SWA_2[] = {
+	//start
+	0xCE,
+	0x01, //mdnie_en
+	0x00, //RGB_IF_Type mask 00 000
+	0x0f, //scr_bypass scr_en algo_bypass algo_en 0000
+	0x00, //roi_en
+	0x00, //roi0 x start
+	0x00,
+	0x00, //roi0 y start
+	0x00,
+	0x00, //roi1 x end
+	0x00,
+	0x00, //roi0 y end
+	0x00,
+	0x14, //trans_en trans_slope 0 0000
+	0x01, //trans_interval
+	0x0f, //trans_ctrl scr gamma cs de
+};
+
+static unsigned char GALLERY_SWA_1[] = {
+	0xCF,
+	0x07, //de cs cc 000
+	0x00, //de_gain 10
+	0x10,
+	0xa0, //de_maxplus 8
+	0xa0, //de_maxminus 8
+	0x01, //cs_gain 10
+	0x60,
+	0x00, //curve_0
+	0x10, //curve_1
+	0x20, //curve_2
+	0x30, //curve_3
+	0x40, //curve_4
+	0x50, //curve_5
+	0x60, //curve_6
+	0x70, //curve_7
+	0x80, //curve_8
+	0x90, //curve_9
+	0xa0, //curve_10
+	0xb0, //curve_11
+	0xc0, //curve_12
+	0xd0, //curve_13
+	0xe0, //curve_14
+	0xf0, //curve_15
+	0x01, //curve_16
+	0x00,
+	0x00, //curve_offset
+	0x00,
+	0x00, //curve_low_x
+	0x00, //curve_low_y
+	0x00, //scr Cr
+	0xff, //scr Rr
+	0xff, //scr Cg
+	0x00, //scr Rg
+	0xff, //scr Cb
+	0x00, //scr Rb
+	0xff, //scr Mr
+	0x00, //scr Gr
+	0x00, //scr Mg
+	0xff, //scr Gg
+	0xff, //scr Mb
+	0x00, //scr Gb
+	0xff, //scr Yr
+	0x00, //scr Br
+	0xff, //scr Yg
+	0x00, //scr Bg
+	0x00, //scr Yb
+	0xff, //scr Bb
+	0xff, //scr Wr
+	0x00, //scr Kr
+	0xf4, //scr Wg
+	0x00, //scr Kg
+	0xfd, //scr Wb
+	0x00, //scr Kb
+};
+
+static unsigned char GALLERY_SWA_2[] = {
+	//start
+	0xCE,
+	0x01, //mdnie_en
+	0x00, //RGB_IF_Type mask 00 000
+	0x0f, //scr_bypass scr_en algo_bypass algo_en 0000
+	0x00, //roi_en
+	0x00, //roi0 x start
+	0x00,
+	0x00, //roi0 y start
+	0x00,
+	0x00, //roi1 x end
+	0x00,
+	0x00, //roi0 y end
+	0x00,
+	0x14, //trans_en trans_slope 0 0000
+	0x01, //trans_interval
+	0x0f, //trans_ctrl scr gamma cs de
+};
+
+
 static unsigned char BROWSER_1[] = {
 	0xCF,
 	0x07, //de cs cc 000
@@ -1526,139 +1681,155 @@ static unsigned char RGB_SENSOR_2[] = {
 };
 
 static struct dsi_cmd_desc DSI0_BYPASS_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(BYPASS_1)}, BYPASS_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(BYPASS_2)}, BYPASS_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(BYPASS_1)}, BYPASS_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(BYPASS_2)}, BYPASS_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 static struct dsi_cmd_desc DSI0_NEGATIVE_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(NEGATIVE_1)}, NEGATIVE_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(NEGATIVE_2)}, NEGATIVE_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(NEGATIVE_1)}, NEGATIVE_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(NEGATIVE_2)}, NEGATIVE_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 static struct dsi_cmd_desc DSI0_GRAYSCALE_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(GRAYSCALE_1)}, GRAYSCALE_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(GRAYSCALE_2)}, GRAYSCALE_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(GRAYSCALE_1)}, GRAYSCALE_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(GRAYSCALE_2)}, GRAYSCALE_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 static struct dsi_cmd_desc DSI0_GRAYSCALE_NEGATIVE_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(GRAYSCALE_NEGATIVE_1)}, GRAYSCALE_NEGATIVE_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(GRAYSCALE_NEGATIVE_2)}, GRAYSCALE_NEGATIVE_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(GRAYSCALE_NEGATIVE_1)}, GRAYSCALE_NEGATIVE_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(GRAYSCALE_NEGATIVE_2)}, GRAYSCALE_NEGATIVE_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 static struct dsi_cmd_desc DSI0_UI_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(UI_1)}, UI_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(UI_2)}, UI_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(UI_1)}, UI_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(UI_2)}, UI_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 static struct dsi_cmd_desc DSI0_VIDEO_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(VIDEO_1)}, VIDEO_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(VIDEO_2)}, VIDEO_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(VIDEO_1)}, VIDEO_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(VIDEO_2)}, VIDEO_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 static struct dsi_cmd_desc DSI0_CAMERA_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(CAMERA_1)}, CAMERA_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(CAMERA_2)}, CAMERA_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(CAMERA_1)}, CAMERA_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(CAMERA_2)}, CAMERA_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 static struct dsi_cmd_desc DSI0_GALLERY_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(GALLERY_1)}, GALLERY_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(GALLERY_2)}, GALLERY_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(GALLERY_1)}, GALLERY_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(GALLERY_2)}, GALLERY_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
+};
+static struct dsi_cmd_desc DSI0_CAMERA_SWA_MDNIE[] = {
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(CAMERA_SWA_1)}, CAMERA_SWA_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(CAMERA_SWA_2)}, CAMERA_SWA_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
+};
+static struct dsi_cmd_desc DSI0_GALLERY_SWA_MDNIE[] = {
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(GALLERY_SWA_1)}, GALLERY_SWA_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(GALLERY_SWA_2)}, GALLERY_SWA_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 static struct dsi_cmd_desc DSI0_BROWSER_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(BROWSER_1)}, BROWSER_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(BROWSER_2)}, BROWSER_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(BROWSER_1)}, BROWSER_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(BROWSER_2)}, BROWSER_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 static struct dsi_cmd_desc DSI0_EBOOK_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(EBOOK_1)}, EBOOK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(EBOOK_2)}, EBOOK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(EBOOK_1)}, EBOOK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(EBOOK_2)}, EBOOK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 static struct dsi_cmd_desc DSI0_HBM_CE_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(OUTDOOR_1)}, OUTDOOR_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(OUTDOOR_2)}, OUTDOOR_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(OUTDOOR_1)}, OUTDOOR_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(OUTDOOR_2)}, OUTDOOR_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 static struct dsi_cmd_desc DSI0_NIGHT_MODE_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(NIGHT_MODE_1)}, NIGHT_MODE_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(NIGHT_MODE_2)}, NIGHT_MODE_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(NIGHT_MODE_1)}, NIGHT_MODE_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(NIGHT_MODE_2)}, NIGHT_MODE_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 static struct dsi_cmd_desc DSI0_COLOR_LENS_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(COLOR_LENS_1)}, COLOR_LENS_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(COLOR_LENS_2)}, COLOR_LENS_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(COLOR_LENS_1)}, COLOR_LENS_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(COLOR_LENS_2)}, COLOR_LENS_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 static struct dsi_cmd_desc DSI0_COLOR_BLIND_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(COLOR_BLIND_1)}, COLOR_BLIND_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(COLOR_BLIND_2)}, COLOR_BLIND_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(COLOR_BLIND_1)}, COLOR_BLIND_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(COLOR_BLIND_2)}, COLOR_BLIND_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 static struct dsi_cmd_desc DSI0_LIGHT_NOTIFICATION_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LIGHT_NOTIFICATION_1)}, LIGHT_NOTIFICATION_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LIGHT_NOTIFICATION_2)}, LIGHT_NOTIFICATION_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LIGHT_NOTIFICATION_1)}, LIGHT_NOTIFICATION_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LIGHT_NOTIFICATION_2)}, LIGHT_NOTIFICATION_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 static struct dsi_cmd_desc DSI0_CURTAIN_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(CURTAIN_1)}, CURTAIN_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(CURTAIN_2)}, CURTAIN_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(CURTAIN_1)}, CURTAIN_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(CURTAIN_2)}, CURTAIN_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 static struct dsi_cmd_desc DSI0_RGB_SENSOR_MDNIE[] = {
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(RGB_SENSOR_1)}, RGB_SENSOR_1},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(RGB_SENSOR_2)}, RGB_SENSOR_2},
-	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_1)}, LEVEL_UNLOCK_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_UNLOCK_2)}, LEVEL_UNLOCK_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(RGB_SENSOR_1)}, RGB_SENSOR_1},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(RGB_SENSOR_2)}, RGB_SENSOR_2},
+	{{DTYPE_GEN_LWRITE, 0, 0, 0, 0, sizeof(LEVEL_LOCK_1)}, LEVEL_LOCK_1},
 	{{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(LEVEL_LOCK_2)}, LEVEL_LOCK_2},
 };
 
@@ -1717,14 +1888,14 @@ static struct dsi_cmd_desc *mdnie_tune_value_dsi0[MAX_APP_MODE][MAX_MODE][MAX_OU
 			{DSI0_CAMERA_MDNIE,	NULL},
 			{DSI0_EBOOK_MDNIE,	NULL},
 		},
-		// NAVI_APP
+		// CAMERA_SWA_APP
 		{
-			{NULL,	NULL},
-			{NULL,	NULL},
-			{NULL,	NULL},
-			{NULL,	NULL},
-			{NULL,	NULL},
-			{NULL,	NULL},
+			{DSI0_CAMERA_SWA_MDNIE,	NULL},
+			{DSI0_CAMERA_SWA_MDNIE,	NULL},
+			{DSI0_CAMERA_SWA_MDNIE,	NULL},
+			{DSI0_CAMERA_SWA_MDNIE,	NULL},
+			{DSI0_CAMERA_SWA_MDNIE,	NULL},
+			{DSI0_EBOOK_MDNIE,	NULL},
 		},
 		// GALLERY_APP
 		{
@@ -1735,14 +1906,14 @@ static struct dsi_cmd_desc *mdnie_tune_value_dsi0[MAX_APP_MODE][MAX_MODE][MAX_OU
 			{DSI0_GALLERY_MDNIE,	NULL},
 			{DSI0_EBOOK_MDNIE,	NULL},
 		},
-		// VT_APP
+		// GALLERY_SWA_APP
 		{
-			{NULL,	NULL},
-			{NULL,	NULL},
-			{NULL,	NULL},
-			{NULL,	NULL},
-			{NULL,	NULL},
-			{NULL,	NULL},
+			{DSI0_GALLERY_SWA_MDNIE,	NULL},
+			{DSI0_GALLERY_SWA_MDNIE,	NULL},
+			{DSI0_GALLERY_SWA_MDNIE,	NULL},
+			{DSI0_GALLERY_SWA_MDNIE,	NULL},
+			{DSI0_GALLERY_SWA_MDNIE,	NULL},
+			{DSI0_EBOOK_MDNIE,	NULL},
 		},
 		// BROWSER_APP
 		{

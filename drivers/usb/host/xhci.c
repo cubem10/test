@@ -676,15 +676,6 @@ int xhci_run(struct usb_hcd *hcd)
 }
 EXPORT_SYMBOL_GPL(xhci_run);
 
-static void xhci_only_stop_hcd(struct usb_hcd *hcd)
-{
-	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
-
-	spin_lock_irq(&xhci->lock);
-	xhci_halt(xhci);
-	spin_unlock_irq(&xhci->lock);
-}
-
 /*
  * Stop xHCI driver.
  *
@@ -701,19 +692,21 @@ void xhci_stop(struct usb_hcd *hcd)
 
 	mutex_lock(&xhci->mutex);
 
+	if (!(xhci->xhc_state & XHCI_STATE_HALTED)) {
+		spin_lock_irq(&xhci->lock);
+
+		xhci->xhc_state |= XHCI_STATE_HALTED;
+		xhci->cmd_ring_state = CMD_RING_STATE_STOPPED;
+		xhci_halt(xhci);
+		xhci_reset(xhci);
+
+		spin_unlock_irq(&xhci->lock);
+	}
+
 	if (!usb_hcd_is_primary_hcd(hcd)) {
-		xhci_only_stop_hcd(xhci->shared_hcd);
 		mutex_unlock(&xhci->mutex);
 		return;
 	}
-
-	spin_lock_irq(&xhci->lock);
-	/* Make sure the xHC is halted for a USB3 roothub
-	 * (xhci_stop() could be called as part of failed init).
-	 */
-	xhci_halt(xhci);
-	xhci_reset(xhci);
-	spin_unlock_irq(&xhci->lock);
 
 	xhci_cleanup_msix(xhci);
 
@@ -4189,6 +4182,11 @@ int xhci_set_usb2_hardware_lpm(struct usb_hcd *hcd,
 		return -EPERM;
 
 	if (udev->usb2_hw_lpm_capable != 1)
+		return -EPERM;
+
+	/* some USB3.0 memory stick doesn't support L1 mode,
+	  * so we add XHCI_LPM_L1_DISABLE quirks for disabling L1 mode */
+	if (!(xhci->quirks & XHCI_LPM_L1_SUPPORT))
 		return -EPERM;
 
 	spin_lock_irqsave(&xhci->lock, flags);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1977,6 +1977,10 @@ static int mdss_mdp_cmd_wait4pingpong(struct mdss_mdp_ctl *ctl, void *arg)
 				__func__,
 				ctl->num, rc, ctx->pp_timeout_report_cnt,
 				atomic_read(&ctx->koff_cnt));
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+/*				SS_XLOG(ctx->pp_timeout_report_cnt);*/
+				inc_dpui_u32_field(DPUI_KEY_QCT_PPTO, 1);
+#endif
 
 		/* enable TE irq to check if it is coming from the panel */
 		te_irq = gpio_to_irq(pdata->panel_te_gpio);

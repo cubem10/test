@@ -1770,18 +1770,8 @@ static int hub_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	 *   usbcore.autosuspend = -1 then keep autosuspend disabled.
 	 */
 #ifdef CONFIG_PM_RUNTIME
-	if (hdev->dev.power.autosuspend_delay >= 0) {
-		if (hdev->parent) {
-			/* 180108 kbj, change other hub's suspend delay time to 1sec
-			 * if we use dexpad,dexpad's hub can be enter suspend mode
-			 * at that time, usb suspend time can take over 5 sec.
-			*/
-			pm_runtime_set_autosuspend_delay(&hdev->dev, 1000);
-			pr_info("%s : set autosuspend delay as 1000ms.\n", __func__);
-		} else {
-			pm_runtime_set_autosuspend_delay(&hdev->dev, 0);
-		}
-	}
+	if (hdev->dev.power.autosuspend_delay >= 0)
+		pm_runtime_set_autosuspend_delay(&hdev->dev, 2000);
 #endif
 
 	/*

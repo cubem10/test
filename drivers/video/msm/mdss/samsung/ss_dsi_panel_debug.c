@@ -301,7 +301,7 @@ int mdss_samsung_read_rddpm(struct samsung_display_driver_data *vdd)
 	} else
 		LCD_ERR("no rddpm read cmds..\n");
 
-	return 0;
+	return (int)rddpm;
 }
 
 int mdss_samsung_read_rddsm(struct samsung_display_driver_data *vdd)
@@ -329,7 +329,7 @@ int mdss_samsung_read_rddsm(struct samsung_display_driver_data *vdd)
 	} else
 		LCD_ERR("no rddsm read cmds..\n");
 
-	return 0;
+	return (int)rddsm;
 }
 
 int mdss_samsung_read_errfg(struct samsung_display_driver_data *vdd)
@@ -372,7 +372,7 @@ int mdss_samsung_read_errfg(struct samsung_display_driver_data *vdd)
 	} else
 		LCD_ERR("no errfg read cmds..\n");
 
-	return 0;
+	return (int)err_fg;
 }
 
 int mdss_samsung_read_dsierr(struct samsung_display_driver_data *vdd)
@@ -402,7 +402,7 @@ int mdss_samsung_read_dsierr(struct samsung_display_driver_data *vdd)
 	} else
 		LCD_ERR("no dsi err read cmds..\n");
 
-	return 0;
+	return (int)dsi_err;
 }
 
 int mdss_samsung_read_self_diag(struct samsung_display_driver_data *vdd)
@@ -472,7 +472,9 @@ int mdss_samsung_dsi_te_check(struct samsung_display_driver_data *vdd)
 		}
 
 		if (te_count == te_max) {
-			LCD_ERR("LDI doesn't generate TE, ddi recovery start.");
+			LCD_ERR("LDI doesn't generate TE, Panel Recovery start.");
+			inc_dpui_u32_field(DPUI_KEY_QCT_NO_TE, 1);
+
 			return 1;
 		} else
 			LCD_ERR("LDI generate TE\n");
@@ -883,7 +885,7 @@ void samsung_image_dump_worker(struct samsung_display_driver_data *vdd, struct w
 
 void samsung_mdss_image_dump(void)
 {
-	static int dump_done;
+	static int dump_done = false;
 	struct samsung_display_driver_data *vdd = samsung_get_vdd();
 
 #if defined(CONFIG_SEC_DEBUG)
@@ -1117,6 +1119,53 @@ static void mdss_sasmung_panel_debug_create(struct samsung_display_driver_data *
 	/* TBD */
 }
 
+#ifdef CONFIG_DISPLAY_USE_INFO
+static int dpci_notifier_callback(struct notifier_block *self,
+				 unsigned long event, void *data)
+{
+#if 0 /*need debug partition for sdm450*/
+	ssize_t len = 0;
+	char tbuf[SS_XLOG_DPCI_LENGTH] = {0,};
+	struct lcd_debug_t lcd_debug;
+
+	/* 1. Read */
+	ss_read_debug_partition(&lcd_debug);
+	LCD_INFO("Read Result FTOUT_CNT=%d, FTOUT_NAME=%s\n", lcd_debug.ftout.count, lcd_debug.ftout.name);
+
+	/* 2. Make String */
+	if (lcd_debug.ftout.count) {
+		len += snprintf((tbuf + len), (SS_XLOG_DPCI_LENGTH - len),
+			"FTOUT CNT=%d ", lcd_debug.ftout.count);
+		len += snprintf((tbuf + len), (SS_XLOG_DPCI_LENGTH - len),
+			"NAME=%s ", lcd_debug.ftout.name);
+	}
+	if (samsung_get_vdd()->dsi_errors) {
+		len += snprintf((tbuf + len), (SS_XLOG_DPCI_LENGTH - len),
+		"dsierr-%llx ", samsung_get_vdd()->dsi_errors);
+	}
+
+	/* 3. Info Clear */
+	samsung_get_vdd()->dsi_errors = 0;
+	memset((void *)&lcd_debug, 0, sizeof(struct lcd_debug_t));
+	ss_write_debug_partition(&lcd_debug);
+
+	set_dpui_field(DPUI_KEY_QCT_SSLOG, tbuf, len);
+#endif
+	return 0;
+}
+
+static int ss_register_dpci(struct samsung_display_driver_data *vdd)
+{
+	int ret;
+	memset(&vdd->dpci_notif, 0,
+			sizeof(vdd->dpci_notif));
+	vdd->dpci_notif.notifier_call = dpci_notifier_callback;
+
+	LCD_INFO("Register dpci\n");
+	ret = dpui_logging_register(&vdd->dpci_notif, DPUI_TYPE_CTRL);
+	return ret;
+}
+#endif
 int mdss_sasmung_panel_debug_init(struct samsung_display_driver_data *vdd)
 {
 	struct samsung_display_debug_data *debug_data;
@@ -1200,6 +1249,10 @@ int mdss_sasmung_panel_debug_init(struct samsung_display_driver_data *vdd)
 
 	if (ret)
 		LCD_ERR("Fail to create files for debugfs\n");
+
+#ifdef CONFIG_DISPLAY_USE_INFO
+	ss_register_dpci(vdd);
+#endif
 
 end:
 	if (ret && !IS_ERR_OR_NULL(debug_data->root))

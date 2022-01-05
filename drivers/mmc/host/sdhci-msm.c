@@ -4329,6 +4329,26 @@ static ssize_t mmc_summary_show(struct device *dev,
 	}
 }
 
+static ssize_t sd_cid_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct mmc_host *host = dev_get_drvdata(dev);
+	struct mmc_card *card = host->card;
+	int len = 0;
+
+	if (!card) {
+		len = snprintf(buf, PAGE_SIZE, "no card\n");
+		goto out;
+	}
+
+	len = snprintf(buf, PAGE_SIZE,
+			"%08x%08x%08x%08x\n",
+			card->raw_cid[0], card->raw_cid[1],
+			card->raw_cid[2], card->raw_cid[3]);
+out:
+	return len;
+}
+
 static DEVICE_ATTR(status, S_IRUGO, t_flash_detect_show, NULL);
 static DEVICE_ATTR(cd_cnt, S_IRUGO, sd_detect_cnt_show, NULL);
 static DEVICE_ATTR(max_mode, S_IRUGO, sd_detect_maxmode_show, NULL);
@@ -4339,6 +4359,7 @@ static DEVICE_ATTR(sd_count, S_IRUGO, sd_count_show, NULL);
 static DEVICE_ATTR(sd_data, S_IRUGO, sd_data_show, NULL);
 static DEVICE_ATTR(mmc_data, S_IRUGO, mmc_data_show, NULL);
 static DEVICE_ATTR(mmc_summary, S_IRUGO, mmc_summary_show, NULL);
+static DEVICE_ATTR(data, 0444, sd_cid_show, NULL);
 
 /* Callback function for SD Card IO Error */
 static int sdcard_uevent(struct mmc_card *card)
@@ -4720,6 +4741,9 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	msm_host->mmc->caps2 |= MMC_CAP2_SLEEP_AWAKE;
 	msm_host->mmc->caps2 |= MMC_CAP2_DETECT_ON_ERR;
 	msm_host->mmc->pm_caps |= MMC_PM_KEEP_POWER | MMC_PM_WAKE_SDIO_IRQ;
+#if defined(CONFIG_SEC_HYBRID_TRAY)
+	msm_host->mmc->caps2 |= MMC_CAP2_NO_PRESCAN_POWERUP;
+#endif
 
 	if (msm_host->pdata->nonremovable) {
 		msm_host->mmc->caps |= MMC_CAP_NONREMOVABLE;
@@ -4829,9 +4853,14 @@ static int sdhci_msm_probe(struct platform_device *pdev)
                         pr_err("%s : Failed to create device!\n", __func__);
 
                 if (device_create_file(sd_info_dev,
-                        &dev_attr_sd_count) < 0)
+					&dev_attr_sd_count) < 0)
                         pr_err("%s : Failed to create device file(%s)!\n",
                                         __func__, dev_attr_sd_count.attr.name);
+
+		if (device_create_file(sd_info_dev,
+					&dev_attr_data) < 0)
+                        pr_err("%s : Failed to create device file(%s)!\n",
+                                        __func__, dev_attr_data.attr.name);
 
                 dev_set_drvdata(sd_info_dev, msm_host->mmc);
         }
@@ -5159,6 +5188,7 @@ static int sdhci_msm_suspend(struct device *dev)
 	struct sdhci_host *host = dev_get_drvdata(dev);
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_msm_host *msm_host = pltfm_host->priv;
+	struct mmc_host *mmc = host->mmc;
 	int ret = 0;
 	int sdio_cfg = 0;
 	ktime_t start = ktime_get();
@@ -5174,6 +5204,8 @@ static int sdhci_msm_suspend(struct device *dev)
 	}
 	ret = sdhci_msm_runtime_suspend(dev);
 out:
+	/* cancel any clock gating work scheduled by mmc_host_clk_release() */
+	cancel_delayed_work_sync(&mmc->clk_gate_work);
 	sdhci_msm_disable_controller_clock(host);
 	if (host->mmc->card && mmc_card_sdio(host->mmc->card)) {
 		sdio_cfg = sdhci_msm_cfg_sdio_wakeup(host, true);

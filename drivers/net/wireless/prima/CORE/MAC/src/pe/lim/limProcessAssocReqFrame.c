@@ -220,7 +220,6 @@ limProcessAssocReqFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,
         WDA_GET_RX_MPDU_DATA(pRxPacketInfo), framelen);
         return;
     }
-
     /*
      * If a STA is already present in DPH and it
      * is initiating a Assoc re-transmit, do not
@@ -891,6 +890,11 @@ limProcessAssocReqFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,
 
         /// Delete 'pre-auth' context of STA
         authType = pStaPreAuthContext->authType;
+
+        /// Store the previous auth frame's seq no
+        prevAuthSeqno = pStaPreAuthContext->seqNo;
+
+
         limDeletePreAuthNode(pMac, pHdr->sa);
 
         // All is well. Assign AID (after else part)
@@ -1013,11 +1017,6 @@ limProcessAssocReqFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,
             {
                 /// STA has triggered pre-auth again
                 authType = pStaPreAuthContext->authType;
-
-               /// Store the previous auth frame's seq no
-               prevAuthSeqno = pStaPreAuthContext->seqNo;
-
-
                 limDeletePreAuthNode(pMac, pHdr->sa);
             }
             else
@@ -1135,6 +1134,7 @@ limProcessAssocReqFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,
 
         goto error;
     }
+
      /// Store the previous auth frame's seq no
     if (prevAuthSeqno != 0xFFFF)
     {

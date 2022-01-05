@@ -406,6 +406,7 @@ typedef struct tagCsrScanResultFilter
     tANI_BOOLEAN isPERRoamScan;
 #endif
     tCsrBssid bssid_hint;
+    bool ignore_pmf_cap;
 }tCsrScanResultFilter;
 
 
@@ -962,6 +963,7 @@ typedef struct tagCsrRoamProfile
     tVOS_CON_MODE csrPersona;
     bool force_24ghz_in_ht20;
     tCsrBssid bssid_hint;
+    bool force_rsne_override;
 }tCsrRoamProfile;
 
 
@@ -1249,6 +1251,9 @@ typedef struct tagCsrConfigParam
     tANI_BOOLEAN disable_scan_during_sco;
     uint32_t sta_auth_retries_for_code17;
     uint32_t sta_sap_scc_on_dfs_chan;
+    tANI_U8 agg_btc_sco_oui[3];
+    tANI_U8 num_ba_buff_btc_sco;
+    tANI_U8 num_ba_buff;
     bool force_scc_with_ecsa;
 }tCsrConfigParam;
 

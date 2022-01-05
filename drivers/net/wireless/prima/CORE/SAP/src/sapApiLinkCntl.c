@@ -1223,9 +1223,7 @@ static VOS_STATUS sap_roam_process_ch_change_resp(ptSapContext sap_ctx,
    /* Handle the event */
    status = sapFsm(sap_ctx, &sap_event);
 
-   vos_spin_lock_acquire(&sap_ctx->ecsa_info.ecsa_lock);
-   sap_ctx->ecsa_info.channel_switch_in_progress = false;
-   vos_spin_lock_release(&sap_ctx->ecsa_info.ecsa_lock);
+   wlansap_reset_chan_change_in_progress(sap_ctx);
    complete(&sap_ctx->ecsa_info.chan_switch_comp);
 
    return status;
@@ -1479,18 +1477,22 @@ WLANSAP_RoamCallback
                          FL( "CSR roamResult = %s (%d)"),
                              "eCSR_ROAM_RESULT_INFRA_ASSOCIATION_IND",
                               roamResult);
+            if (!pCsrRoamInfo) {
+                   VOS_TRACE(VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_ERROR,
+                             FL("pCsrRoamInfo NULL " ));
+                    halStatus = eHAL_STATUS_FAILURE;
+                    break;
+             }
             sapContext->nStaWPARSnReqIeLength = pCsrRoamInfo->rsnIELen;
              
             if(sapContext->nStaWPARSnReqIeLength)
                 vos_mem_copy( sapContext->pStaWpaRsnReqIE,
                               pCsrRoamInfo->prsnIE, sapContext->nStaWPARSnReqIeLength);
-
             sapContext->nStaAddIeLength = pCsrRoamInfo->addIELen;
              
             if(sapContext->nStaAddIeLength)
                 vos_mem_copy( sapContext->pStaAddIE,
                         pCsrRoamInfo->paddIE, sapContext->nStaAddIeLength);
-
             sapContext->SapQosCfg.WmmIsEnabled = pCsrRoamInfo->wmmEnabledSta;
             // MAC filtering
             vosStatus = sapIsPeerMacAllowed(sapContext, (v_U8_t *)pCsrRoamInfo->peerMac);
@@ -1525,8 +1527,15 @@ WLANSAP_RoamCallback
                           FL("CSR roamResult = %s (%d)"),
                              "eCSR_ROAM_RESULT_INFRA_ASSOCIATION_CNF",
                               roamResult);
+                if (!pCsrRoamInfo) {
+                       VOS_TRACE(VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_ERROR,
+                                  FL("pCsrRoamInfo NULL " ));
+                        halStatus = eHAL_STATUS_FAILURE;
+                        break;
+                 }
 
-            sapContext->nStaWPARSnReqIeLength = pCsrRoamInfo->rsnIELen;
+                sapContext->nStaWPARSnReqIeLength = pCsrRoamInfo->rsnIELen;
+
             if (sapContext->nStaWPARSnReqIeLength)
                 vos_mem_copy( sapContext->pStaWpaRsnReqIE,
                               pCsrRoamInfo->prsnIE, sapContext->nStaWPARSnReqIeLength);
@@ -1561,7 +1570,8 @@ WLANSAP_RoamCallback
                              "eCSR_ROAM_RESULT_DISASSOC_IND",
                               roamResult);
 #ifdef WLAN_FEATURE_AP_HT40_24G
-            sapRemoveHT40IntolerantSta(sapContext, pCsrRoamInfo);
+            if (pCsrRoamInfo)
+                sapRemoveHT40IntolerantSta(sapContext, pCsrRoamInfo);
 #endif
             /* Fill in the event structure */
             vosStatus = sapSignalHDDevent( sapContext, pCsrRoamInfo, eSAP_STA_DISASSOC_EVENT, (v_PVOID_t)eSAP_STATUS_SUCCESS);
@@ -1578,7 +1588,13 @@ WLANSAP_RoamCallback
                               roamResult);
             /* Fill in the event structure */
             //TODO: support for group key MIC failure event to be handled
-            vosStatus = sapSignalHDDevent( sapContext, pCsrRoamInfo, eSAP_STA_MIC_FAILURE_EVENT,(v_PVOID_t) NULL);
+                if (!pCsrRoamInfo) {
+                       VOS_TRACE(VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_ERROR,
+                                  FL("pCsrRoamInfo NULL " ));
+                        halStatus = eHAL_STATUS_FAILURE;
+                        break;
+                 }
+                vosStatus = sapSignalHDDevent( sapContext, pCsrRoamInfo, eSAP_STA_MIC_FAILURE_EVENT,(v_PVOID_t) NULL);
             if(!VOS_IS_STATUS_SUCCESS(vosStatus))
             {
                 halStatus = eHAL_STATUS_FAILURE;
@@ -1592,7 +1608,13 @@ WLANSAP_RoamCallback
                               roamResult);
             /* Fill in the event structure */
             //TODO: support for unicast key MIC failure event to be handled
-            vosStatus = sapSignalHDDevent( sapContext, pCsrRoamInfo, eSAP_STA_MIC_FAILURE_EVENT,(v_PVOID_t) NULL);
+                if (!pCsrRoamInfo) {
+                       VOS_TRACE(VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_ERROR,
+                                  FL("pCsrRoamInfo NULL " ));
+                        halStatus = eHAL_STATUS_FAILURE;
+                        break;
+                 }
+                vosStatus = sapSignalHDDevent( sapContext, pCsrRoamInfo, eSAP_STA_MIC_FAILURE_EVENT,(v_PVOID_t) NULL);
             if(!VOS_IS_STATUS_SUCCESS(vosStatus))
             {
                 halStatus = eHAL_STATUS_FAILURE;
@@ -1666,7 +1688,13 @@ WLANSAP_RoamCallback
                               roamResult);
             /* Fill in the event structure */
             //TODO: support for group key MIC failure event to be handled
-            vosStatus = sapSignalHDDevent( sapContext, pCsrRoamInfo, eSAP_WPS_PBC_PROBE_REQ_EVENT,(v_PVOID_t) NULL);
+                if (!pCsrRoamInfo) {
+                       VOS_TRACE(VOS_MODULE_ID_SAP, VOS_TRACE_LEVEL_ERROR,
+                                  FL("pCsrRoamInfo NULL " ));
+                        halStatus = eHAL_STATUS_FAILURE;
+                        break;
+                 }
+                vosStatus = sapSignalHDDevent( sapContext, pCsrRoamInfo, eSAP_WPS_PBC_PROBE_REQ_EVENT,(v_PVOID_t) NULL);
             if(!VOS_IS_STATUS_SUCCESS(vosStatus))
             {
                 halStatus = eHAL_STATUS_FAILURE;
@@ -1679,11 +1707,13 @@ WLANSAP_RoamCallback
                              "eCSR_ROAM_RESULT_FORCED",
                               roamResult);
 #ifdef WLAN_FEATURE_AP_HT40_24G
-            sapRemoveHT40IntolerantSta(sapContext, pCsrRoamInfo);
+            if (pCsrRoamInfo)
+                sapRemoveHT40IntolerantSta(sapContext, pCsrRoamInfo);
 #endif
             //This event can be used to inform hdd about user triggered disassoc event
             /* Fill in the event structure */
-            sapSignalHDDevent( sapContext, pCsrRoamInfo, eSAP_STA_DISASSOC_EVENT, (v_PVOID_t)eSAP_STATUS_SUCCESS);
+            if (pCsrRoamInfo)
+                sapSignalHDDevent( sapContext, pCsrRoamInfo, eSAP_STA_DISASSOC_EVENT, (v_PVOID_t)eSAP_STATUS_SUCCESS);
             break;
 
         case eCSR_ROAM_RESULT_NONE:

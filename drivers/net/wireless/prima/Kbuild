@@ -88,6 +88,8 @@ HAVE_CFG80211 := 0
 endif
 endif
 
+
+ifeq ($(CONFIG_PRIMA_WLAN_BTAMP),y)
 ############ BAP ############
 BAP_DIR :=	CORE/BAP
 BAP_INC_DIR :=	$(BAP_DIR)/inc
@@ -116,6 +118,7 @@ BAP_OBJS := 	$(BAP_SRC_DIR)/bapApiData.o \
 		$(BAP_SRC_DIR)/bapRsnTxRx.o \
 		$(BAP_SRC_DIR)/btampFsm.o \
 		$(BAP_SRC_DIR)/btampHCI.o
+endif
 
 ############ DXE ############
 DXE_DIR :=	CORE/DXE
@@ -136,8 +139,7 @@ HDD_SRC_DIR :=	$(HDD_DIR)/src
 HDD_INC := 	-I$(WLAN_ROOT)/$(HDD_INC_DIR) \
 		-I$(WLAN_ROOT)/$(HDD_SRC_DIR)
 
-HDD_OBJS := 	$(HDD_SRC_DIR)/bap_hdd_main.o \
-		$(HDD_SRC_DIR)/wlan_hdd_assoc.o \
+HDD_OBJS := 	$(HDD_SRC_DIR)/wlan_hdd_assoc.o \
 		$(HDD_SRC_DIR)/wlan_hdd_cfg.o \
 		$(HDD_SRC_DIR)/wlan_hdd_debugfs.o \
 		$(HDD_SRC_DIR)/wlan_hdd_dev_pwr.o \
@@ -157,6 +159,10 @@ HDD_OBJS := 	$(HDD_SRC_DIR)/bap_hdd_main.o \
 		$(HDD_SRC_DIR)/wlan_hdd_wmm.o \
 		$(HDD_SRC_DIR)/wlan_hdd_wowl.o
 
+ifeq ($(CONFIG_PRIMA_WLAN_BTAMP),y)
+HDD_OBJS += 	$(HDD_SRC_DIR)/bap_hdd_main.o
+endif
+
 ifeq ($(HAVE_CFG80211),1)
 HDD_OBJS +=	$(HDD_SRC_DIR)/wlan_hdd_cfg80211.o \
 		$(HDD_SRC_DIR)/wlan_hdd_p2p.o
@@ -167,14 +173,18 @@ CONFIG_WLAN_SAMSUNG_FEATURE=y
 
 ifeq ($(CONFIG_WLAN_SAMSUNG_FEATURE), y)
 # HDD_OBJS += $(HDD_SRC_DIR)/wlan_hdd_custom_sec.o
-EXTRA_CFLAGS += -DSEC_READ_MACADDR
+EXTRA_CFLAGS += -DSEC_READ_MACADDR_SYSFS
 EXTRA_CFLAGS += -DSEC_CONFIG_PSM
 EXTRA_CFLAGS += -DCONFIG_SEC
 EXTRA_CFLAGS += -DFEATURE_DISABLE_RM
-EXTRA_CFLAGS += -DSEC_WRITE_VERSION_IN_FILE
+EXTRA_CFLAGS += -DSEC_WRITE_VERSION_IN_SYSFS
 EXTRA_CFLAGS += -DSEC_HAL_FEATURE_DISABLE
-EXTRA_CFLAGS += -DSEC_WRITE_SOFTAP_INFO_IN_FILE
+EXTRA_CFLAGS += -DSEC_WRITE_SOFTAP_INFO_IN_SYSFS
 EXTRA_CFLAGS += -DSEC_WRITE_ANT_GPIO_INFO_IN_FILE
+
+# SS grip power control
+CDEFINES += -DSEC_CONFIG_GRIP_POWER
+
 ifneq ($(CONFIG_WLAN_USE_OLD_NV),0)
 EXTRA_CFLAGS += -DSEC_WLAN_USE_OLD_NV
 endif
@@ -518,8 +528,7 @@ RIVA_INC :=	-I$(WLAN_ROOT)/riva/inc
 
 LINUX_INC :=	-Iinclude/linux
 
-INCS :=		$(BAP_INC) \
-		$(DXE_INC) \
+INCS :=		$(DXE_INC) \
 		$(HDD_INC) \
 		$(LINUX_INC) \
 		$(MAC_INC) \
@@ -533,6 +542,10 @@ INCS :=		$(BAP_INC) \
 		$(WDA_INC) \
 		$(WDI_INC)
 
+ifeq ($(CONFIG_PRIMA_WLAN_BTAMP),y)
+INCS +=		$(BAP_INC)
+endif
+
 OBJS :=		$(BAP_OBJS) \
 		$(DXE_OBJS) \
 		$(HDD_OBJS) \
@@ -545,6 +558,10 @@ OBJS :=		$(BAP_OBJS) \
 		$(VOSS_OBJS) \
 		$(WDA_OBJS) \
 		$(WDI_OBJS)
+
+ifeq ($(CONFIG_PRIMA_WLAN_BTAMP),y)
+OBJS += 	$(BAP_OBJS)
+endif
 
 EXTRA_CFLAGS += $(INCS)
 EXTRA_CFLAGS += -fno-pic
@@ -712,9 +729,6 @@ endif
 
 CDEFINES += -DFEATURE_WLAN_CH_AVOID
 CDEFINES += -DWLAN_FEATURE_AP_HT40_24G
-
-# SS grip power control
-CDEFINES += -DSEC_CONFIG_GRIP_POWER
 
 # Some kernel include files are being moved.  Check to see if
 # the old version of the files are present

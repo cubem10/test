@@ -887,8 +887,8 @@ static bool sm5708_fg_reg_init(struct i2c_client *client, int is_surge)
 	/* init mark */
 	sm5708_fg_i2c_write_word(client, SM5708_REG_RESET, SM5708_FG_INIT_MARK);
 
-	/* start first param_ctrl unlock */
-	sm5708_fg_i2c_write_word(client, SM5708_REG_PARAM_CTRL, SM5708_FG_PARAM_UNLOCK_CODE);
+	/* start first param_ctrl unlock & TABLE_LEN write */
+	sm5708_fg_i2c_write_word(client, SM5708_REG_PARAM_CTRL, SM5708_FG_PARAM_UNLOCK_CODE | SM5708_FG_TABLE_LEN);
 
 	/* RCE write */
 	for (i = 0; i < 3; i++) {
@@ -1076,7 +1076,16 @@ static bool sm5708_fg_init(struct i2c_client *client, bool is_surge)
 	pr_info("%s: q_max_now = 0x%x\n", __func__, fuelgauge->info.q_max_now);
 #endif
 
-	if (sm5708_fg_check_reg_init_need(client)) {
+	ret = sm5708_fg_i2c_read_word(client, SM5708_REG_PARAM_CTRL);
+	pr_info("%s: SM5708_REG_PARAM_CTRL 0x13 = 0x%x \n", __func__, ret);
+	if (ret != (SM5708_FG_PARAM_LOCK_CODE | SM5708_FG_TABLE_LEN)) {
+		pr_info("%s: SM5708_FG_PARAM_LOCK_CODE is abnormal Start quick-start\n", __func__);
+		// SW reset code
+		sm5708_fg_i2c_verified_write_word(client, SM5708_REG_RESET, SW_RESET_CODE);
+		// delay 800ms
+		msleep(800);
+	}
+	if (sm5708_fg_check_reg_init_need(client) || (ret != (SM5708_FG_PARAM_LOCK_CODE | SM5708_FG_TABLE_LEN))) {
 		sm5708_fg_reg_init(client, is_surge);
 	}
 

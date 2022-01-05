@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2017 TRUSTONIC LIMITED
+ * Copyright (c) 2013-2018 TRUSTONIC LIMITED
  * All Rights Reserved.
  *
  * This program is free software; you can redistribute it and/or
@@ -26,13 +26,47 @@
 #include <linux/fs.h>
 #include <linux/net.h>
 #include <net/sock.h>		/* sockfd_lookup */
+#include <linux/version.h>
+#if KERNEL_VERSION(4, 11, 0) <= LINUX_VERSION_CODE
+#include <linux/sched/clock.h>	/* local_clock */
+#include <linux/sched/task.h>	/* put_task_struct */
+#endif
 
 #include "public/mc_user.h"
 #include "public/mc_admin.h"
 
-#include "platform.h"
+#if KERNEL_VERSION(3, 5, 0) <= LINUX_VERSION_CODE
 #include <linux/uidgid.h>
+#else
+#define kuid_t uid_t
+#define kgid_t gid_t
+#define KGIDT_INIT(value) ((kgid_t)value)
 
+static inline uid_t __kuid_val(kuid_t uid)
+{
+	return uid;
+}
+
+static inline gid_t __kgid_val(kgid_t gid)
+{
+	return gid;
+}
+
+static inline bool gid_eq(kgid_t left, kgid_t right)
+{
+	return __kgid_val(left) == __kgid_val(right);
+}
+
+static inline bool gid_gt(kgid_t left, kgid_t right)
+{
+	return __kgid_val(left) > __kgid_val(right);
+}
+
+static inline bool gid_lt(kgid_t left, kgid_t right)
+{
+	return __kgid_val(left) < __kgid_val(right);
+}
+#endif
 #include "main.h"
 #include "mmu.h"
 #include "mcp.h"
@@ -84,6 +118,77 @@ static void wsm_free(struct tee_session *session, struct tee_wsm *wsm)
 	wsm->in_use = false;
 }
 
+#if KERNEL_VERSION(4, 6, 0) <= LINUX_VERSION_CODE
+static int hash_path_and_data(struct task_struct *task, u8 *hash,
+			      const void *data, unsigned int data_len)
+{
+	struct mm_struct *mm = task->mm;
+	struct crypto_shash *tfm;
+	char *buf;
+	char *path;
+	unsigned int path_len;
+	int ret = 0;
+
+	buf = (char *)__get_free_page(GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	down_read(&mm->mmap_sem);
+	if (!mm->exe_file) {
+		ret = -ENOENT;
+		goto end;
+	}
+
+	path = d_path(&mm->exe_file->f_path, buf, PAGE_SIZE);
+	if (IS_ERR(path)) {
+		ret = PTR_ERR(path);
+		goto end;
+	}
+
+	mc_dev_devel("process path =");
+	{
+		char *c;
+
+		for (c = path; *c; c++)
+			mc_dev_devel("%c %d", *c, *c);
+	}
+
+	path_len = (unsigned int)strnlen(path, PAGE_SIZE);
+	mc_dev_devel("path_len = %u", path_len);
+	/* Compute hash of path */
+	tfm = crypto_alloc_shash("sha1", 0, 0);
+	if (IS_ERR(tfm)) {
+		ret = PTR_ERR(tfm);
+		mc_dev_err("cannot allocate shash: %d", ret);
+		goto end;
+	}
+
+	{
+		SHASH_DESC_ON_STACK(desc, tfm);
+
+		desc->tfm = tfm;
+		desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
+
+		crypto_shash_init(desc);
+		crypto_shash_update(desc, (u8 *)path, path_len);
+		if (data) {
+			mc_dev_devel("hashing additional data");
+			crypto_shash_update(desc, data, data_len);
+		}
+
+		crypto_shash_final(desc, hash);
+		shash_desc_zero(desc);
+	}
+
+	crypto_free_shash(tfm);
+
+end:
+	up_read(&mm->mmap_sem);
+	free_page((unsigned long)buf);
+
+	return ret;
+}
+#else
 static int hash_path_and_data(struct task_struct *task, u8 *hash,
 			      const void *data, unsigned int data_len)
 {
@@ -148,6 +253,11 @@ end:
 
 	return ret;
 }
+#endif
+
+#if KERNEL_VERSION(4, 9, 0) <= LINUX_VERSION_CODE
+#define GROUP_AT(gi, i) ((gi)->gid[i])
+#endif
 
 /*
  * groups_search is not EXPORTed so copied from kernel/groups.c
@@ -489,9 +599,7 @@ int session_notify_swd(struct tee_session *session)
 		return -EINVAL;
 	}
 
-	session->nq_session.notif_count++;
-	return mcp_notify(&session->mcp_session,
-			  session->nq_session.notif_count);
+	return mcp_notify(&session->mcp_session);
 }
 
 /*
@@ -512,12 +620,13 @@ static int wsm_debug_structs(struct kasnprintf_buf *buf, struct tee_wsm *wsm,
 
 	ret = kasnprintf(buf, "\t\t");
 	if (no < 0)
-		ret = kasnprintf(buf, "tci %pK: cbuf %pK va %lx len %u\n",
-				 wsm, wsm->cbuf, wsm->va, wsm->len);
+		ret = kasnprintf(buf, "tci %pK: cbuf %pK va %pK len %u\n",
+				 wsm, wsm->cbuf, (void *)wsm->va, wsm->len);
 	else if (wsm->in_use)
 		ret = kasnprintf(buf,
-				 "wsm #%d: cbuf %pK va %lx len %u sva %x\n",
-				 no, wsm->cbuf, wsm->va, wsm->len, wsm->sva);
+				 "wsm #%d: cbuf %pK va %pK len %u sva %x\n",
+				 no, wsm->cbuf, (void *)wsm->va, wsm->len,
+				 wsm->sva);
 
 	if (ret < 0)
 		return ret;
