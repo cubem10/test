@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_linux.h 797490 2019-01-02 03:56:40Z $
+ * $Id: dhd_linux.h 799960 2019-01-18 06:51:12Z $
  */
 
 /* wifi platform functions for power, interrupt and pre-alloc, either
@@ -154,8 +154,8 @@ typedef struct dhd_dump {
 } dhd_dump_t;
 #ifdef DNGL_AXI_ERROR_LOGGING
 typedef struct dhd_axi_error_dump {
+	ulong fault_address;
 	uint32 axid;
-	uint32 fault_address;
 	struct hnd_ext_trap_axi_error_v1 etd_axi_error_v1;
 } dhd_axi_error_dump_t;
 #endif /* DNGL_AXI_ERROR_LOGGING */

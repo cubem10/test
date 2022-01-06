@@ -16,7 +16,7 @@
 #include <linux/time.h>
 #include "npu-session.h"
 
-#define NPU_MAX_SESSION 16
+#define NPU_MAX_SESSION 32
 
 struct npu_sessionmgr {
 	struct npu_session *session[NPU_MAX_SESSION];

@@ -20,26 +20,25 @@
 #include "jsqz-core.h"
 
 // SFR
-#define     REG_0_Y_ADDR				0x000
-#define     REG_1_U_ADDR				0x004
-#define     REG_2_V_ADDR				0x008
+#define     REG_0_Y_ADDR			0x000
+#define     REG_1_U_ADDR			0x004
+#define     REG_2_V_ADDR			0x008
 #define     REG_3_INPUT_FORMAT		0x00C
 
 #define     REG_4_TO_19_Y_Q_MAT		0x010
-#define     REG_20_TO_35_C_Q_MAT		0x050
+#define     REG_20_TO_35_C_Q_MAT	0x050
 
 #define     REG_36_SW_RESET			0x090
 #define     REG_37_INTERRUPT_EN		0x094
 #define     REG_38_INTERRUPT_CLEAR	0x098
-#define     REG_39_JSQZ_HW_START		0x09C
+#define     REG_39_JSQZ_HW_START	0x09C
 #define     REG_40_JSQZ_HW_DONE		0x100
-#define     REG_42_BUG_CONFIG			0x108
+#define     REG_42_BUS_CONFIG		0x108
 
-#define     REG_43_TO_58_INIT_Y_Q		0x10C
-#define     REG_59_TO_74_INIT_C_Q		0x14C
+#define     REG_43_TO_58_INIT_Y_Q	0x10C
+#define     REG_59_TO_74_INIT_C_Q	0x14C
 
 
-// define APIs
 static inline void jsqz_sw_reset(void __iomem *base)
 {
 	writel(0x0, base + REG_36_SW_RESET);
@@ -76,15 +75,24 @@ static inline u32 jsqz_check_done(void __iomem *base)
 {
 	return readl(base + REG_40_JSQZ_HW_DONE) & 0x1;
 }
+static inline void jsqz_on_off_time_out(void __iomem *base, u32 value)
+{
+	u32 sfr = 0;
+	sfr = readl(base + REG_42_BUS_CONFIG);
+    if (value == 0)
+        writel((sfr & 0xfeffffff), base + REG_42_BUS_CONFIG);
+    else
+        writel((sfr | 0x01000000), base + REG_42_BUS_CONFIG);
+}
 
 static inline void jsqz_set_stride_on_n_value(void __iomem *base, u32 value)
 {
 	u32 sfr = 0;
-	sfr = readl(base + REG_42_BUG_CONFIG);
+	sfr = readl(base + REG_42_BUS_CONFIG);
     if (value == 0)
-        writel((sfr & 0xfffee000), base + REG_42_BUG_CONFIG);
+        writel((sfr & 0xfffee000), base + REG_42_BUS_CONFIG);
     else
-        writel(((sfr & 0xfffe0000) | (0x00010000 | (value & 0x1fff))), base + REG_42_BUG_CONFIG);
+        writel(((sfr & 0xfffe0000) | (0x00010000 | (value & 0x1fff))), base + REG_42_BUS_CONFIG);
 }
 
 static inline void jsqz_set_input_format(void __iomem *base, u32 format)
@@ -115,7 +123,7 @@ static inline void jsqz_set_input_qtbl(void __iomem *base, u32 * input_qt)
 
 static inline u32 jsqz_get_bug_config(void __iomem *base)
 {
-	return readl(base + REG_42_BUG_CONFIG);
+	return readl(base + REG_42_BUS_CONFIG);
 }
 
 static inline void jsqz_get_init_qtbl(void __iomem *base, u32 * init_qt)
@@ -154,10 +162,9 @@ static inline void jsqz_print_all_regs(struct jsqz_dev *jsqz)
 	}
 	dev_dbg(jsqz->dev, "%s: 0x00000100 : %08x\n", __func__, readl(base + REG_40_JSQZ_HW_DONE));
 	dev_dbg(jsqz->dev, "%s: 0x00000104 : %08x\n", __func__, readl(base + 0x104));
-	dev_dbg(jsqz->dev, "%s: 0x00000108 : %08x\n", __func__, readl(base + REG_42_BUG_CONFIG));
+	dev_dbg(jsqz->dev, "%s: 0x00000108 : %08x\n", __func__, readl(base + REG_42_BUS_CONFIG));
 	dev_dbg(jsqz->dev, "%s: END\n", __func__);
 }
-
 #endif
 
 

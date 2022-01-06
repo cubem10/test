@@ -298,6 +298,14 @@ int sec_ts_i2c_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 		return -ENOMEM;
 	}
 
+	if (!ts->resume_done.done) {
+		ret = wait_for_completion_interruptible_timeout(&ts->resume_done, msecs_to_jiffies(500));
+		if (ret <= 0) {
+			input_err(true, &ts->client->dev, "%s: LPM: pm resume is not handled:%d\n", __func__, ret);
+			return -EIO;
+		}
+	}
+
 #ifdef CONFIG_INPUT_SEC_SECURE_TOUCH
 	if (atomic_read(&ts->secure_enabled) == SECURE_TOUCH_ENABLE) {
 		input_err(true, &ts->client->dev,
@@ -388,6 +396,14 @@ int sec_ts_i2c_read(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 	int remain = len;
 	int i;
 	u8 *buff;
+
+	if (!ts->resume_done.done) {
+		ret = wait_for_completion_interruptible_timeout(&ts->resume_done, msecs_to_jiffies(500));
+		if (ret <= 0) {
+			input_err(true, &ts->client->dev, "%s: LPM: pm resume is not handled:%d\n", __func__, ret);
+			return -EIO;
+		}
+	}
 
 #ifdef CONFIG_INPUT_SEC_SECURE_TOUCH
 	if (atomic_read(&ts->secure_enabled) == SECURE_TOUCH_ENABLE) {
@@ -545,6 +561,14 @@ static int sec_ts_i2c_write_burst(struct sec_ts_data *ts, u8 *data, int len)
 		return -ENOMEM;
 	}
 
+	if (!ts->resume_done.done) {
+		ret = wait_for_completion_interruptible_timeout(&ts->resume_done, msecs_to_jiffies(500));
+		if (ret <= 0) {
+			input_err(true, &ts->client->dev, "%s: LPM: pm resume is not handled:%d\n", __func__, ret);
+			return -EIO;
+		}
+	}
+
 #ifdef CONFIG_INPUT_SEC_SECURE_TOUCH
 	if (atomic_read(&ts->secure_enabled) == SECURE_TOUCH_ENABLE) {
 		input_err(true, &ts->client->dev,
@@ -594,6 +618,14 @@ static int sec_ts_i2c_read_bulk(struct sec_ts_data *ts, u8 *data, int len)
 	int remain = len;
 	struct i2c_msg msg;
 	u8 *buff;
+
+	if (!ts->resume_done.done) {
+		ret = wait_for_completion_interruptible_timeout(&ts->resume_done, msecs_to_jiffies(500));
+		if (ret <= 0) {
+			input_err(true, &ts->client->dev, "%s: LPM: pm resume is not handled:%d\n", __func__, ret);
+			return -EIO;
+		}
+	}
 
 #ifdef CONFIG_INPUT_SEC_SECURE_TOUCH
 	if (atomic_read(&ts->secure_enabled) == SECURE_TOUCH_ENABLE) {
@@ -2802,6 +2834,8 @@ static int sec_ts_input_open(struct input_dev *dev)
 	if (ts->fix_active_mode)
 		sec_ts_fix_tmode(ts, TOUCH_SYSTEM_MODE_TOUCH, TOUCH_MODE_STATE_TOUCH);
 
+	sec_ts_set_temp(ts);
+
 	mutex_unlock(&ts->modechange);
 
 	cancel_delayed_work(&ts->work_print_info);
@@ -2834,9 +2868,6 @@ static void sec_ts_input_close(struct input_dev *dev)
 	sec_ts_print_info(ts);
 #ifdef CONFIG_INPUT_SEC_SECURE_TOUCH
 	secure_touch_stop(ts, 1);
-#endif
-#ifdef CONFIG_SAMSUNG_TUI
-	stui_cancel_session();
 #endif
 
 #ifdef USE_POWER_RESET_WORK

@@ -27,7 +27,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd.h 797282 2018-12-31 05:43:53Z $
+ * $Id: dhd.h 829689 2019-07-11 10:49:40Z $
  */
 
 /****************
@@ -498,6 +498,9 @@ enum dhd_hang_reason {
 	HANG_REASON_IOCTL_RESP_TIMEOUT_SCHED_ERROR	= 0x800C,
 	HANG_REASON_D3_ACK_TIMEOUT_SCHED_ERROR		= 0x800D,
 	HANG_REASON_SEQUENTIAL_PRIVCMD_ERROR		= 0x800E,
+	HANG_REASON_SCAN_BUSY				= 0x800F,
+	HANG_REASON_BSS_UP_FAILURE			= 0x8010,
+	HANG_REASON_BSS_DOWN_FAILURE			= 0x8011,
 	HANG_REASON_PCIE_LINK_DOWN_RC_DETECT		= 0x8805,
 	HANG_REASON_INVALID_EVENT_OR_DATA		= 0x8806,
 	HANG_REASON_UNKNOWN				= 0x8807,
@@ -864,12 +867,13 @@ struct dhd_logtrace_thr_ts {
 
 typedef enum dhd_induce_error_states
 {
-	DHD_INDUCE_ERROR_CLEAR = 0x0,
-	DHD_INDUCE_IOCTL_TIMEOUT = 0x1,
-	DHD_INDUCE_D3_ACK_TIMEOUT = 0x2,
-	DHD_INDUCE_LIVELOCK = 0x3,
-	DHD_INDUCE_DROP_OOB_IRQ = 0x4,
-	DHD_INDUCE_ERROR_MAX = 0x5
+	DHD_INDUCE_ERROR_CLEAR		= 0x0,
+	DHD_INDUCE_IOCTL_TIMEOUT	= 0x1,
+	DHD_INDUCE_D3_ACK_TIMEOUT	= 0x2,
+	DHD_INDUCE_LIVELOCK		= 0x3,
+	DHD_INDUCE_DROP_OOB_IRQ		= 0x4,
+	DHD_INDUCE_DROP_AXI_SIG		= 0x5,
+	DHD_INDUCE_ERROR_MAX		= 0x6
 } dhd_induce_error_states_t;
 
 #ifdef DHD_HP2P
@@ -1124,6 +1128,7 @@ typedef struct dhd_pub {
 #endif /* DHDTCPACK_SUPPRESS */
 #if defined(ARP_OFFLOAD_SUPPORT)
 	uint32 arp_version;
+	bool hmac_updated;
 #endif // endif
 #if defined(BCMSUP_4WAY_HANDSHAKE)
 	bool fw_4way_handshake;		/* Whether firmware will to do the 4way handshake. */
@@ -1192,6 +1197,7 @@ typedef struct dhd_pub {
 	uint *sssr_dig_buf_before;
 	uint *sssr_dig_buf_after;
 	uint32 sssr_dump_mode;
+	bool collect_sssr;		/* Flag to indicate SSSR dump is required */
 #endif /* DHD_SSSR_DUMP */
 	uint8 *soc_ram;
 	uint32 soc_ram_length;
@@ -1385,6 +1391,10 @@ typedef struct dhd_pub {
 	uint32 target_uid;
 	uint8 target_tid;
 #endif /* SUPPORT_SET_TID */
+#ifdef DHD_PKTDUMP_ROAM
+	void *pktcnts;
+#endif /* DHD_PKTDUMP_ROAM */
+	bool disable_dtim_in_suspend;	/* Disable set bcn_li_dtim in suspend */
 } dhd_pub_t;
 
 typedef struct {
@@ -2021,10 +2031,13 @@ extern int dhd_keep_alive_onoff(dhd_pub_t *dhd);
 void dhd_schedule_memdump(dhd_pub_t *dhdp, uint8 *buf, uint32 size);
 #endif /* DHD_FW_COREDUMP */
 
-void dhd_schedule_sssr_dump(dhd_pub_t *dhdp, uint32 dump_mode);
+void dhd_write_sssr_dump(dhd_pub_t *dhdp, uint32 dump_mode);
 #ifdef DNGL_AXI_ERROR_LOGGING
 void dhd_schedule_axi_error_dump(dhd_pub_t *dhdp, void *type);
 #endif /* DNGL_AXI_ERROR_LOGGING */
+#ifdef BCMPCIE
+void dhd_schedule_cto_recovery(dhd_pub_t *dhdp);
+#endif /* BCMPCIE */
 
 #ifdef PKT_FILTER_SUPPORT
 #define DHD_UNICAST_FILTER_NUM		0
@@ -2052,6 +2065,7 @@ extern int net_os_rxfilter_add_remove(struct net_device *dev, int val, int num);
 #define MAX_PKTFLT_FIXED_PATTERN_SIZE	32
 #define MAX_PKTFLT_FIXED_BUF_SIZE	\
 	(WL_PKT_FILTER_FIXED_LEN + MAX_PKTFLT_FIXED_PATTERN_SIZE * 2)
+#define MAXPKT_ARG	16
 #endif /* PKT_FILTER_SUPPORT */
 
 #if defined(BCMPCIE)
@@ -3321,7 +3335,7 @@ void dhd_h2d_log_time_sync(dhd_pub_t *dhdp);
 extern void dhd_cleanup_if(struct net_device *net);
 
 #ifdef DNGL_AXI_ERROR_LOGGING
-extern bool dhd_axi_error(dhd_pub_t *dhd);
+extern void dhd_axi_error(dhd_pub_t *dhd);
 #ifdef DHD_USE_WQ_FOR_DNGL_AXI_ERROR
 extern void dhd_axi_error_dispatch(dhd_pub_t *dhdp);
 #endif /* DHD_USE_WQ_FOR_DNGL_AXI_ERROR */
@@ -3339,11 +3353,11 @@ extern struct dhd_if * dhd_get_ifp(dhd_pub_t *dhdp, uint32 ifidx);
 #define ST(x)		0
 #define STDIR(x)	0
 #define DHD_STATLOG_CTRL(dhdp, stat, ifidx, reason) \
-	do { /* noop */ } while(0)
-#define DHD_STATLOG_DATA(dhdp, stat, ifidx, dir) \
-	do { /* noop */ } while(0)
+	do { /* noop */ } while (0)
+#define DHD_STATLOG_DATA(dhdp, stat, ifidx, dir, cond) \
+	do { BCM_REFERENCE(cond); } while (0)
 #define DHD_STATLOG_DATA_RSN(dhdp, stat, ifidx, dir, reason) \
-	do { /* noop */ } while(0)
+	do { /* noop */ } while (0)
 #endif /* DHD_STATUS_LOGGING */
 
 #ifdef CONFIG_SILENT_ROAM
@@ -3372,4 +3386,7 @@ extern void dhd_set_tid_based_on_uid(dhd_pub_t *dhdp, void *pkt);
 extern int dhd_control_he_enab(dhd_pub_t * dhd, uint8 he_enab);
 extern uint8 control_he_enab;
 #endif /* DISABLE_HE_ENAB  || CUSTOM_CONTROL_HE_ENAB */
+
+extern bool dhd_validate_chipid(dhd_pub_t *dhdp);
+
 #endif /* _dhd_h_ */

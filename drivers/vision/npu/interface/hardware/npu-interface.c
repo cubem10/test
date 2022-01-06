@@ -22,14 +22,138 @@
 
 #define LINE_TO_SGMT(sgmt_len, ptr)	((ptr) & ((sgmt_len) - 1))
 static struct workqueue_struct *wq;
+static struct work_struct work_report;
 static void __rprt_manager(struct work_struct *w);
-static DECLARE_WORK(mywork, __rprt_manager);
+
 
 struct npu_interface interface = {
 	.mbox_hdr = NULL,
 	.sfr = NULL,
 	.addr = NULL,
 };
+
+void dbg_dump_mbox(void)
+{
+	int rptr;
+	u32 sgmt_len;
+	char *base;
+
+	volatile struct mailbox_ctrl *ctrl;
+
+	ctrl = &(interface.mbox_hdr->f2hctrl[MAILBOX_F2HCTRL_REPORT]);
+	sgmt_len = ctrl->sgmt_len;
+	base = (void *)interface.addr - ctrl->sgmt_ofs;
+	rptr = 0;
+	npu_debug_memdump32_by_memcpy((u32 *)(base + LINE_TO_SGMT(sgmt_len, rptr)),
+		(u32 *)(base + LINE_TO_SGMT(sgmt_len, rptr) + (8 * K_SIZE)));
+
+	ctrl = &(interface.mbox_hdr->f2hctrl[MAILBOX_F2HCTRL_RESPONSE]);
+	sgmt_len = ctrl->sgmt_len;
+	base = (void *)interface.addr - ctrl->sgmt_ofs;
+	rptr = 0;
+	npu_debug_memdump32_by_memcpy((u32 *)(base + LINE_TO_SGMT(sgmt_len, rptr)),
+		(u32 *)(base + LINE_TO_SGMT(sgmt_len, rptr) + (2 * K_SIZE)));
+
+	ctrl = &(interface.mbox_hdr->h2fctrl[MAILBOX_H2FCTRL_HPRIORITY]);
+	sgmt_len = ctrl->sgmt_len;
+	base = (void *)interface.addr - ctrl->sgmt_ofs;
+	rptr = 0;
+	npu_debug_memdump32_by_memcpy((u32 *)(base + LINE_TO_SGMT(sgmt_len, rptr)),
+		(u32 *)(base + LINE_TO_SGMT(sgmt_len, rptr) + (1 * K_SIZE)));
+
+	ctrl = &(interface.mbox_hdr->h2fctrl[MAILBOX_H2FCTRL_LPRIORITY]);
+	sgmt_len = ctrl->sgmt_len;
+	base = (void *)interface.addr - ctrl->sgmt_ofs;
+	rptr = 0;
+	npu_debug_memdump32_by_memcpy((u32 *)(base + LINE_TO_SGMT(sgmt_len, rptr)),
+		(u32 *)(base + LINE_TO_SGMT(sgmt_len, rptr) + (1 * K_SIZE)));
+	//Dump mbox_hdr
+	npu_debug_memdump32_by_memcpy((u32 *)interface.mbox_hdr,
+		(u32 *)(interface.mbox_hdr + 1));
+}
+
+void dbg_print_error(void)
+{
+	u32 nSize = 0;
+	u32 wptr, rptr, sgmt_len;
+	char buf[BUFSIZE - 1] = "";
+	char *base;
+
+	volatile struct mailbox_ctrl *ctrl;
+
+	if (interface.mbox_hdr == NULL)
+		return;
+	mutex_lock(&interface.lock);
+
+	ctrl = &(interface.mbox_hdr->f2hctrl[MAILBOX_F2HCTRL_REPORT]);
+	wptr = ctrl->wptr;
+	rptr = ctrl->rptr;
+	sgmt_len = ctrl->sgmt_len;
+	base = (void *)interface.addr - ctrl->sgmt_ofs;
+
+	if (wptr < rptr) { //When wptr circled a time,
+		while (rptr != 0) {
+			if ((sgmt_len - rptr) >= BUFSIZE) {
+				nSize = BUFSIZE - 1;
+				memcpy_fromio(buf, base + LINE_TO_SGMT(sgmt_len, rptr), nSize);
+				rptr += nSize;
+			} else {
+				nSize = sgmt_len - rptr;
+				memcpy_fromio(buf, base + LINE_TO_SGMT(sgmt_len, rptr), nSize);
+				rptr = 0;
+			}
+			pr_err("%s\n", buf);
+			buf[0] = '\0';
+		}
+	}
+	while (wptr != rptr) {
+		if ((wptr - rptr) > BUFSIZE - 1) {//need more memcpy from io.
+			nSize = BUFSIZE - 1;
+			memcpy_fromio(buf, base + LINE_TO_SGMT(sgmt_len, rptr), nSize);
+			rptr += nSize;
+		} else {
+			nSize = wptr - rptr;
+			memcpy_fromio(buf, base + LINE_TO_SGMT(sgmt_len, rptr), nSize);
+			rptr = wptr;
+		}
+		pr_err("%s\n", buf);
+		buf[0] = '\0';
+	}
+	mutex_unlock(&interface.lock);
+
+}
+
+void dbg_print_ncp_header(struct ncp_header *nhdr)
+{
+	npu_info("============= ncp_header at %pK =============\n", nhdr);
+	npu_info("mabic_number1 \t: 0X%X\n", nhdr->magic_number1);
+	npu_info("hdr_version \t\t: 0X%X\n", nhdr->hdr_version);
+	npu_info("hdr_size \t\t: 0X%X\n", nhdr->hdr_size);
+	npu_info("net_id \t\t: 0X%X\n", nhdr->net_id);
+	npu_info("unique_id \t\t: 0X%X\n", nhdr->unique_id);
+	npu_info("priority \t\t: 0X%X\n", nhdr->priority);
+	npu_info("flags \t\t: 0X%X\n", nhdr->flags);
+	npu_info("period \t\t: 0X%X\n", nhdr->period);
+	npu_info("workload \t\t: 0X%X\n", nhdr->workload);
+
+	npu_info("addr_vector_offset \t: 0X%X\n", nhdr->address_vector_offset);
+	npu_info("addr_vector_cnt \t: 0X%X\n", nhdr->address_vector_cnt);
+	npu_info("magic_number2 \t: 0X%X\n", nhdr->magic_number2);
+
+}
+
+void dbg_print_interface(void)
+{
+	npu_info("=============  interface at %pK =============\n", &interface);
+	npu_info("mbox_hdr \t\t: 0x%pK\n", interface.mbox_hdr);
+	npu_info("mbox_hdr.max_slot \t: %d\n", interface.mbox_hdr->max_slot);
+	npu_info("mbox_hdr.version \t: %d\n", interface.mbox_hdr->version);
+	npu_info("mbox_hdr.signature2 \t: 0X%x\n", interface.mbox_hdr->signature2);
+	npu_info("mbox_hdr.signature1 \t: 0X%x\n", interface.mbox_hdr->signature1);
+	npu_info("sfr \t\t\t: 0x%pK\n", interface.sfr);
+	npu_info("addr \t\t\t: 0x%pK\n", interface.addr);
+}
+
 
 static irqreturn_t mailbox_isr2(int irq, void *data)
 {
@@ -38,9 +162,8 @@ static irqreturn_t mailbox_isr2(int irq, void *data)
 	val = interface.sfr->grp[3].ms;
 	if (val)
 		interface.sfr->grp[3].c = val;
-	if (interface.rslt_notifier != NULL) {
+	if (interface.rslt_notifier != NULL)
 		interface.rslt_notifier(NULL);
-	}
 	return IRQ_HANDLED;
 }
 
@@ -52,7 +175,7 @@ static irqreturn_t mailbox_isr3(int irq, void *data)
 	if (val)
 		interface.sfr->grp[4].c = val;
 	if (wq)
-		queue_work(wq, &mywork);
+		queue_work(wq, &work_report);
 	return IRQ_HANDLED;
 }
 
@@ -60,7 +183,7 @@ static void __send_interrupt(u32 cmdType)
 {
 	u32 val;
 
-	switch (cmdType){
+	switch (cmdType) {
 	case COMMAND_LOAD:
 	case COMMAND_UNLOAD:
 	case COMMAND_PROFILE_CTL:
@@ -107,37 +230,6 @@ I_ERR:
 	return ret;
 }
 
-void dbg_print_ncp_header(struct ncp_header *nhdr)
-{
-	npu_info("============= ncp_header at %p =============\n", nhdr);
-	npu_info("mabic_number1 \t: 0X%X\n", nhdr->magic_number1);
-	npu_info("hdr_version \t\t: 0X%X\n", nhdr->hdr_version);
-	npu_info("hdr_size \t\t: 0X%X\n", nhdr->hdr_size);
-	npu_info("net_id \t\t: 0X%X\n", nhdr->net_id);
-	npu_info("unique_id \t\t: 0X%X\n", nhdr->unique_id);
-	npu_info("priority \t\t: 0X%X\n", nhdr->priority);
-	npu_info("flags \t\t: 0X%X\n", nhdr->flags);
-	npu_info("period \t\t: 0X%X\n", nhdr->period);
-	npu_info("workload \t\t: 0X%X\n", nhdr->workload);
-
-	npu_info("addr_vector_offset \t: 0X%X\n", nhdr->address_vector_offset);
-	npu_info("addr_vector_cnt \t: 0X%X\n", nhdr->address_vector_cnt);
-	npu_info("magic_number2 \t: 0X%X\n", nhdr->magic_number2);
-
-}
-
-void dbg_print_interface(void)
-{
-	npu_info("=============  interface at %p =============\n", &interface);
-	npu_info("mbox_hdr \t\t: 0x%p\n", interface.mbox_hdr);
-	npu_info("mbox_hdr.max_slot \t: %d\n", interface.mbox_hdr->max_slot);
-	npu_info("mbox_hdr.version \t: %d\n", interface.mbox_hdr->version);
-	npu_info("mbox_hdr.signature2 \t: 0X%x\n", interface.mbox_hdr->signature2);
-	npu_info("mbox_hdr.signature1 \t: 0X%x\n", interface.mbox_hdr->signature1);
-	npu_info("sfr \t\t\t: 0x%p\n", interface.sfr);
-	npu_info("addr \t\t\t: 0x%p\n", interface.addr);
-}
-
 static ssize_t get_ncp_hdr_size(const struct npu_nw *nw)
 {
 	struct ncp_header *ncp_header;
@@ -152,50 +244,48 @@ static ssize_t get_ncp_hdr_size(const struct npu_nw *nw)
 	ncp_header = (struct ncp_header *)nw->ncp_addr.vaddr;
 	//dbg_print_ncp_header(ncp_header);
 	if (ncp_header->magic_number1 != NCP_MAGIC1) {
-		npu_info("invalid MAGIC of NCP header (0x%08x) at (%p)", ncp_header->magic_number1, ncp_header);
+		npu_info("invalid MAGIC of NCP header (0x%08x) at (%pK)", ncp_header->magic_number1, ncp_header);
 		return -EINVAL;
 	}
 	return ncp_header->hdr_size;
 }
 
-int npu_interface_probe(struct device *dev, void *regs,	u32 irq2, u32 irq3)
+int npu_interface_probe(struct device *dev, void *regs)
 {
 	int ret = 0;
 
 	BUG_ON(!dev);
-	BUG_ON(!irq2);
-	BUG_ON(!irq3);
 
 	interface.sfr = (volatile struct mailbox_sfr *)regs;
-	ret = devm_request_irq(dev, irq2, mailbox_isr2, 0, "exynos-npu", NULL);
-	if (ret) {
-		probe_err("fail(%d) in devm_request_irq(2)\n", ret);
-		goto err_exit;
-	}
-	ret = devm_request_irq(dev, irq3, mailbox_isr3, 0, "exynos-npu", NULL);
-	if (ret) {
-		probe_err("fail(%d) in devm_request_irq(3)\n", ret);
-		goto err_probe_irq2;
-	}
 	mutex_init(&interface.lock);
+	wq = alloc_workqueue("my work", WQ_FREEZABLE|WQ_HIGHPRI, 1);
+	INIT_WORK(&work_report, __rprt_manager);
 	probe_info("complete in %s\n", __func__);
-	return ret;
-err_probe_irq2:
-	devm_free_irq(dev, irq2, NULL);
-err_exit:
-	interface.sfr = NULL;
 	return ret;
 }
 int npu_interface_open(struct npu_system *system)
 {
 	int ret = 0;
 	struct npu_device *device;
+	struct device *dev = &system->pdev->dev;
 
 	BUG_ON(!system);
 	device = container_of(system, struct npu_device, system);
 	interface.addr = (void *)((system->tcu_sram.vaddr) + NPU_MAILBOX_BASE);
 	interface.mbox_hdr = system->mbox_hdr;
-	wq = alloc_workqueue("rprt_manager", __WQ_LEGACY | __WQ_ORDERED, 0);
+
+	ret = devm_request_irq(dev, system->irq0, mailbox_isr2, 0, "exynos-npu", NULL);
+	if (ret) {
+		probe_err("fail(%d) in devm_request_irq(2)\n", ret);
+		goto err_exit;
+	}
+	ret = devm_request_irq(dev, system->irq1, mailbox_isr3, 0, "exynos-npu", NULL);
+	if (ret) {
+		probe_err("fail(%d) in devm_request_irq(3)\n", ret);
+		goto err_probe_irq2;
+	}
+
+	wq = create_singlethread_workqueue("rprt_manager");
 	if (!wq) {
 		npu_err("err in alloc_worqueue.\n");
 		goto err_exit;
@@ -207,8 +297,11 @@ int npu_interface_open(struct npu_system *system)
 	}
 
 	return ret;
+
 err_workqueue:
 	destroy_workqueue(wq);
+err_probe_irq2:
+	devm_free_irq(dev, system->irq0, NULL);
 err_exit:
 	interface.addr = NULL;
 	interface.mbox_hdr = NULL;
@@ -216,22 +309,27 @@ err_exit:
 	npu_err("EMERGENCY_RECOVERY is triggered.\n");
 	return ret;
 }
-int npu_interface_close(void)
+int npu_interface_close(struct npu_system *system)
 {
 	int wptr, rptr;
+	struct device *dev = &system->pdev->dev;
 
-	queue_work(wq, &mywork);
-	if (wq) {
-		if (work_pending(&mywork)) {
-			cancel_work_sync(&mywork);
+	devm_free_irq(dev, system->irq0, NULL);
+	devm_free_irq(dev, system->irq1, NULL);
+
+	queue_work(wq, &work_report);
+	if ((wq) && (interface.mbox_hdr)) {
+		if (work_pending(&work_report)) {
+			cancel_work_sync(&work_report);
 			wptr = interface.mbox_hdr->f2hctrl[1].wptr;
 			rptr = interface.mbox_hdr->f2hctrl[1].rptr;
-			npu_dbg("work was canceled. wptr : %d\t rptr : %d\n", wptr, rptr);
+			npu_dbg("work was canceled due to interface close, rptr/wptr : %d/%d\n", wptr, rptr);
 		}
 		flush_workqueue(wq);
 		destroy_workqueue(wq);
 		wq = NULL;
 	}
+
 	interface.addr = NULL;
 	interface.mbox_hdr = NULL;
 	return 0;
@@ -256,7 +354,7 @@ int nw_req_manager(int msgid, struct npu_nw *nw)
 	struct message msg = {};
 	ssize_t hdr_size;
 
-	switch(nw->cmd) {
+	switch (nw->cmd) {
 	case NPU_NW_CMD_BASE:
 		npu_info("abnormal command type\n");
 		break;
@@ -346,8 +444,8 @@ int fr_req_manager(int msgid, struct npu_frame *frame)
 	case NPU_FRAME_CMD_Q:
 		cmd.c.process.oid = frame->uid;
 		cmd.c.process.fid = frame->frame_id;
-		cmd.length = frame->mbox_process_dat->address_vector_cnt;
-		cmd.payload = frame->mbox_process_dat->address_vector_start_daddr;
+		cmd.length = frame->mbox_process_dat.address_vector_cnt;
+		cmd.payload = frame->mbox_process_dat.address_vector_start_daddr;
 		msg.command = COMMAND_PROCESS;
 		msg.length = sizeof(struct command);
 		break;
@@ -372,27 +470,16 @@ int nw_rslt_manager(int *ret_msgid, struct npu_nw *nw)
 	struct command cmd;
 
 	ret = mbx_ipc_peek_msg((void *)interface.addr, &interface.mbox_hdr->f2hctrl[0], &msg);
-	if (ret <= 0) {
-		/*
-		if (ret < 0)
-			npu_err("return from mbx_ipc_get_msg: (%d)\n", ret);
-			*/
+	if (ret <= 0)
 		return FALSE;
-	}
+
 	ret = interface.msgid_get_type(msg.mid);
-	if (ret != PROTO_DRV_REQ_TYPE_NW) {
-		//npu_info("get type error: (%d)\n", ret);
+	if (ret != PROTO_DRV_REQ_TYPE_NW)
 		return FALSE;//report error content:
-	}
 
 	ret = mbx_ipc_get_msg((void *)interface.addr, &interface.mbox_hdr->f2hctrl[0], &msg);
-	if (ret <= 0) {
-		/*
-		if (ret < 0)
-			npu_err("return from mbx_ipc_get_msg: (%d)\n", ret);
-			*/
+	if (ret <= 0)
 		return FALSE;
-	}
 
 	ret = mbx_ipc_get_cmd((void *)interface.addr, &interface.mbox_hdr->f2hctrl[0], &msg, &cmd);
 	if (ret) {
@@ -411,8 +498,8 @@ int nw_rslt_manager(int *ret_msgid, struct npu_nw *nw)
 		npu_err("invalid msg.command: (%d)\n", msg.command);
 		return FALSE;
 	}
-	*ret_msgid = msg.mid;
 	fw_rprt_manager();
+	*ret_msgid = msg.mid;
 	return TRUE;
 }
 
@@ -424,13 +511,8 @@ int fr_rslt_manager(int *ret_msgid, struct npu_frame *frame)
 	struct command cmd;
 
 	ret = mbx_ipc_peek_msg((void *)interface.addr, &interface.mbox_hdr->f2hctrl[0], &msg);
-	if (ret <= 0) {
-		/*
-		if (ret < 0)
-			npu_err("return from mbx_ipc_get_msg: (%d)\n", ret);
-			*/
+	if (ret <= 0)
 		return FALSE;
-	}
 
 	ret = interface.msgid_get_type(msg.mid);
 	if (ret != PROTO_DRV_REQ_TYPE_FRAME) {
@@ -439,17 +521,12 @@ int fr_rslt_manager(int *ret_msgid, struct npu_frame *frame)
 	}
 
 	ret = mbx_ipc_get_msg((void *)interface.addr, &interface.mbox_hdr->f2hctrl[0], &msg);
-	if (ret <= 0) { // 0 : no msg, less than zero : Err
-		/*
-		if (ret < 0)
-			npu_err("return from mbx_ipc_get_msg: (%d)\n", ret);
-			*/
+	if (ret <= 0)// 0 : no msg, less than zero : Err
 		return FALSE;
-	}
+
 	ret = mbx_ipc_get_cmd((void *)interface.addr, &interface.mbox_hdr->f2hctrl[0], &msg, &cmd);
-	if (ret) {
+	if (ret)
 		return FALSE;
-	}
 
 	if (msg.command == COMMAND_DONE) {
 		npu_info("COMMAND_DONE for mid: (%d)\n", msg.mid);
@@ -465,6 +542,79 @@ int fr_rslt_manager(int *ret_msgid, struct npu_frame *frame)
 	*ret_msgid = msg.mid;
 	fw_rprt_manager();
 	return TRUE;
+}
+
+//Print log which was written with last 128 byte.
+int npu_check_unposted_mbox(int nCtrl)
+{
+	int pos, ret;
+	char *base;
+	u32 nSize, wptr, rptr, sgmt_len;
+	u32 *buf, *strOut;
+	volatile struct mailbox_ctrl *ctrl;
+
+	if (interface.mbox_hdr == NULL)
+		return -1;
+
+	strOut = kzalloc(LENGTHOFEVIDENCE, GFP_ATOMIC);
+	if (!strOut) {
+		ret = -ENOMEM;
+		goto err_exit;
+	}
+	buf = kzalloc(LENGTHOFEVIDENCE, GFP_ATOMIC);
+	if (!buf) {
+		kfree(strOut);
+		ret = -ENOMEM;
+		goto err_exit;
+	}
+
+	mutex_lock(&interface.lock);
+
+	switch (nCtrl) {
+	case ECTRL_LOW:
+		ctrl = &(interface.mbox_hdr->h2fctrl[MAILBOX_H2FCTRL_LPRIORITY]);
+		pr_err("[V] H2F_MBOX[LOW] - rptr/wptr : %d/%d\n", ctrl->rptr, ctrl->wptr);
+		break;
+	case ECTRL_HIGH:
+		ctrl = &(interface.mbox_hdr->h2fctrl[MAILBOX_H2FCTRL_HPRIORITY]);
+		pr_err("[V] H2F_MBOX[HIGH] - rptr/wptr : %d/%d\n", ctrl->rptr, ctrl->wptr);
+		break;
+	case ECTRL_ACK:
+		ctrl = &(interface.mbox_hdr->f2hctrl[MAILBOX_F2HCTRL_RESPONSE]);
+		pr_err("[V] F2H_MBOX[RESPONSE] - rptr/wptr : %d/%d\n", ctrl->rptr, ctrl->wptr);
+		break;
+	case ECTRL_REPORT:
+		ctrl = &(interface.mbox_hdr->f2hctrl[MAILBOX_F2HCTRL_REPORT]);
+		pr_err("[V] F2H_MBOX[REPORT] - rptr/wptr : %d/%d\n", ctrl->rptr, ctrl->wptr);
+		break;
+	default:
+		BUG_ON(1);
+	}
+
+	wptr = ctrl->wptr;
+	sgmt_len = ctrl->sgmt_len;
+	base = (void *)interface.addr - ctrl->sgmt_ofs;
+
+	pos = 0;
+	if (wptr < LENGTHOFEVIDENCE) {
+		rptr = sgmt_len - (LENGTHOFEVIDENCE - wptr);
+		nSize = LENGTHOFEVIDENCE - wptr;
+		npu_debug_memdump32_by_memcpy((u32 *)(base + LINE_TO_SGMT(sgmt_len, rptr)), (u32 *)(base + LINE_TO_SGMT(sgmt_len, rptr) + nSize));
+		rptr = 0;
+		pos = 0;
+		nSize = wptr;
+	} else {
+		rptr = wptr - LENGTHOFEVIDENCE;
+		nSize = LENGTHOFEVIDENCE;
+	}
+	if (wptr > 0)
+		npu_debug_memdump32_by_memcpy((u32 *)(base + LINE_TO_SGMT(sgmt_len, rptr)), (u32 *)(base + LINE_TO_SGMT(sgmt_len, rptr) + nSize));
+	mutex_unlock(&interface.lock);
+	ret = TRUE;
+	kfree(buf);
+	kfree(strOut);
+err_exit:
+	return ret;
 }
 
 static void __rprt_manager(struct work_struct *w)
@@ -514,7 +664,7 @@ static void __rprt_manager(struct work_struct *w)
 		npu_fw_report_store(buf, nSize);
 		buf[0] = '\0';
 	}
-	interface.mbox_hdr->f2hctrl[1].rptr = wptr;
+	interface.mbox_hdr->f2hctrl[MAILBOX_F2HCTRL_REPORT].rptr = wptr;
 	mutex_unlock(&interface.lock);
 	return;
 
@@ -523,64 +673,14 @@ static void __rprt_manager(struct work_struct *w)
 void fw_rprt_manager(void)
 {
 	if (wq)
-		queue_work(wq, &mywork);
+		queue_work(wq, &work_report);
 	else//not opened, or already closed.
 		return;
 }
 
-void dbg_print_error(void)
-{
-	u32 nSize = 0;
-	u32 wptr, rptr, sgmt_len;
-	char buf[BUFSIZE - 1] = "";
-	char *base;
-
-	volatile struct mailbox_ctrl *ctrl;
-
-	if (interface.mbox_hdr == NULL)
-		return;
-	mutex_lock(&interface.lock);
-
-	ctrl = &(interface.mbox_hdr->f2hctrl[MAILBOX_F2HCTRL_REPORT]);
-	wptr = ctrl->wptr;
-	rptr = ctrl->rptr;
-	sgmt_len = ctrl->sgmt_len;
-	base = (void *)interface.addr - ctrl->sgmt_ofs;
-
-	if (wptr < rptr) { //When wptr circled a time,
-		while (rptr != 0) {
-			if ((sgmt_len - rptr) >= BUFSIZE) {
-				nSize = BUFSIZE - 1;
-				memcpy_fromio(buf, base + LINE_TO_SGMT(sgmt_len, rptr), nSize);
-				rptr += nSize;
-			} else {
-				nSize = sgmt_len - rptr;
-				memcpy_fromio(buf, base + LINE_TO_SGMT(sgmt_len, rptr), nSize);
-				rptr = 0;
-			}
-			pr_err("%s\n", buf);
-			buf[0] = '\0';
-		}
-	}
-	while (wptr != rptr) {
-		if ((wptr - rptr) > BUFSIZE - 1) {//need more memcpy from io.
-			nSize = BUFSIZE - 1;
-			memcpy_fromio(buf, base + LINE_TO_SGMT(sgmt_len, rptr), nSize);
-			rptr += nSize;
-		} else {
-			nSize = wptr - rptr;
-			memcpy_fromio(buf, base + LINE_TO_SGMT(sgmt_len, rptr), nSize);
-			rptr = wptr;
-		}
-		pr_err("%s\n", buf);
-		buf[0] = '\0';
-	}
-	mutex_unlock(&interface.lock);
-
-}
-
 int mbx_rslt_fault_listener(void)
 {
+	fw_rprt_manager();
 	dbg_print_ctrl(&interface.mbox_hdr->h2fctrl[0]);
 	mbx_ipc_print((void *)interface.addr, &interface.mbox_hdr->h2fctrl[0]);
 
@@ -597,7 +697,8 @@ int mbx_rslt_fault_listener(void)
 	return 0;
 }
 
-int nw_rslt_available(void){
+int nw_rslt_available(void)
+{
 	int ret;
 	struct message msg;
 
@@ -606,7 +707,8 @@ int nw_rslt_available(void){
 		&interface.mbox_hdr->f2hctrl[0], &msg);
 	return ret;
 }
-int fr_rslt_available(void){
+int fr_rslt_available(void)
+{
 	int ret;
 	struct message msg;
 

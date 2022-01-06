@@ -25,7 +25,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_linux.c 797282 2018-12-31 05:43:53Z $
+ * $Id: dhd_linux.c 823742 2019-06-05 08:37:45Z $
  */
 
 #include <typedefs.h>
@@ -2998,7 +2998,7 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 	uint roamvar = 1;
 #endif /* ENABLE_FW_ROAM_SUSPEND */
 #ifdef ENABLE_BCN_LI_BCN_WAKEUP
-	int bcn_li_bcn;
+	int bcn_li_bcn = 1;
 #endif /* ENABLE_BCN_LI_BCN_WAKEUP */
 	uint nd_ra_filter = 0;
 #ifdef ENABLE_IPMCAST_FILTER
@@ -3182,7 +3182,9 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 				}
 #endif /* ENABLE_FW_ROAM_SUSPEND */
 #ifdef ENABLE_BCN_LI_BCN_WAKEUP
-				bcn_li_bcn = 0;
+				if (bcn_li_dtim) {
+					bcn_li_bcn = 0;
+				}
 				ret = dhd_iovar(dhd, 0, "bcn_li_bcn", (char *)&bcn_li_bcn,
 						sizeof(bcn_li_bcn), NULL, 0, TRUE);
 				if (ret < 0) {
@@ -3376,7 +3378,6 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 				}
 #endif /* ENABLE_FW_ROAM_SUSPEND */
 #ifdef ENABLE_BCN_LI_BCN_WAKEUP
-				bcn_li_bcn = 1;
 				ret = dhd_iovar(dhd, 0, "bcn_li_bcn", (char *)&bcn_li_bcn,
 						sizeof(bcn_li_bcn), NULL, 0, TRUE);
 				if (ret < 0) {
@@ -4451,20 +4452,12 @@ __dhd_sendpkt(dhd_pub_t *dhdp, int ifidx, void *pktbuf)
 			wl_handle_wps_states(dhd_idx2net(dhdp, ifidx),
 				pktdata, PKTLEN(dhdp->osh, pktbuf), TRUE);
 #endif /* WL_CFG80211 && WL_WPS_SYNC */
-			dhd_dump_eapol_message(dhdp, ifidx, pktdata,
-				(uint32)PKTLEN(dhdp->osh, pktbuf), TRUE);
 		}
-		if (ntoh16(eh->ether_type) == ETHER_TYPE_IP) {
-			dhd_dhcp_dump(dhdp, ifidx, pktdata, TRUE);
-			dhd_icmp_dump(dhdp, ifidx, pktdata, TRUE);
-			dhd_dns_dump(dhdp, ifidx, pktdata, TRUE);
-		}
-		if (ntoh16(eh->ether_type) == ETHER_TYPE_ARP) {
-			dhd_arp_dump(dhdp, ifidx, pktdata, TRUE);
-		}
+		dhd_dump_pkt(dhdp, ifidx, pktdata,
+			(uint32)PKTLEN(dhdp->osh, pktbuf), TRUE, NULL, NULL);
 	} else {
-			PKTCFREE(dhdp->osh, pktbuf, TRUE);
-			return BCME_ERROR;
+		PKTCFREE(dhdp->osh, pktbuf, TRUE);
+		return BCME_ERROR;
 	}
 
 	{
@@ -5820,26 +5813,22 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 #if defined(WL_CFG80211) && defined(WL_WPS_SYNC)
 			wl_handle_wps_states(ifp->net, dump_data, len, FALSE);
 #endif /* WL_CFG80211 && WL_WPS_SYNC */
-			dhd_dump_eapol_message(dhdp, ifidx, dump_data, len, FALSE);
 #ifdef DHD_4WAYM4_FAIL_DISCONNECT
 			if (dhd_is_4way_msg((uint8 *)(skb->data)) == EAPOL_4WAY_M3) {
 				OSL_ATOMIC_SET(dhdp->osh, &ifp->m4state, M3_RXED);
 			}
 #endif /* DHD_4WAYM4_FAIL_DISCONNECT */
 		}
-		if (protocol == ETHER_TYPE_IP) {
-			dhd_dhcp_dump(dhdp, ifidx, dump_data, FALSE);
-			dhd_icmp_dump(dhdp, ifidx, dump_data, FALSE);
-			dhd_dns_dump(dhdp, ifidx, dump_data, FALSE);
-		}
-		if (protocol == ETHER_TYPE_ARP) {
-			dhd_arp_dump(dhdp, ifidx, dump_data, FALSE);
-		}
 		dhd_rx_pkt_dump(dhdp, ifidx, dump_data, len);
+		dhd_dump_pkt(dhdp, ifidx, dump_data, len, FALSE, NULL, NULL);
 
 #if defined(DHD_WAKE_STATUS) && defined(DHD_WAKEPKT_DUMP)
 		if (pkt_wake) {
 			prhex("[wakepkt_dump]", (char*)dump_data, MIN(len, 32));
+			DHD_ERROR(("config check in_suspend: %d ", dhdp->in_suspend));
+#ifdef ARP_OFFLOAD_SUPPORT
+			DHD_ERROR(("arp hmac_update:%d \n", dhdp->hmac_updated));
+#endif /* ARP_OFFLOAD_SUPPORT */
 		}
 #endif /* DHD_WAKE_STATUS && DHD_WAKEPKT_DUMP */
 
@@ -7466,6 +7455,7 @@ dhd_add_monitor_if(dhd_info_t *dhd)
 		DHD_ERROR(("%s, register_netdev failed for %s\n",
 			__FUNCTION__, dev->name));
 		free_netdev(dev);
+		return;
 	}
 
 	if (FW_SUPPORTED((&dhd->pub), monitor)) {
@@ -8068,6 +8058,9 @@ dhd_stop(struct net_device *net)
 #ifdef DHD_4WAYM4_FAIL_DISCONNECT
 				dhd_cleanup_m4_state_work(&dhd->pub, ifidx);
 #endif /* DHD_4WAYM4_FAIL_DISCONNECT */
+#ifdef DHD_PKTDUMP_ROAM
+				dhd_dump_pkt_clear(&dhd->pub);
+#endif /* DHD_PKTDUMP_ROAM */
 
 				dhd_net_if_lock_local(dhd);
 				for (i = 1; i < DHD_MAX_IFS; i++)
@@ -9613,11 +9606,7 @@ dhd_wlan_power_off_handler(void *handler, unsigned char reason)
 		/* save core dump to a file */
 		if (dhdp->memdump_enabled) {
 #ifdef DHD_SSSR_DUMP
-			if (dhdp->sssr_inited) {
-				dhdp->info->no_wq_sssrdump = TRUE;
-				dhd_bus_sssr_dump(dhdp);
-				dhdp->info->no_wq_sssrdump = FALSE;
-			}
+			dhdp->collect_sssr = TRUE;
 #endif /* DHD_SSSR_DUMP */
 			dhdp->memdump_type = DUMP_TYPE_DUE_TO_BT;
 			dhd_bus_mem_dump(dhdp);
@@ -9917,20 +9906,24 @@ dhd_attach(osl_t *osh, struct dhd_bus *bus, uint bus_hdrlen)
 #endif /* DBG_PKT_MON */
 #endif /* DEBUGABILITY */
 
-#ifdef DHD_LOG_DUMP
-	dhd_log_dump_init(&dhd->pub);
-#endif /* DHD_LOG_DUMP */
-
-#ifdef DHD_PKT_LOGGING
-	dhd_os_attach_pktlog(&dhd->pub);
-#endif /* DHD_PKT_LOGGING */
 #ifdef DHD_STATUS_LOGGING
-	dhd->pub.statlog = dhd_attach_statlog(&dhd->pub,
-		MAX_STATLOG_ITEM, STATLOG_LOGBUF_LEN);
+	dhd->pub.statlog = dhd_attach_statlog(&dhd->pub, MAX_STATLOG_ITEM,
+		MAX_STATLOG_REQ_ITEM, STATLOG_LOGBUF_LEN);
 	if (dhd->pub.statlog == NULL) {
 		DHD_ERROR(("%s: alloc statlog failed\n", __FUNCTION__));
 	}
 #endif /* DHD_STATUS_LOGGING */
+
+#ifdef DHD_LOG_DUMP
+	dhd_log_dump_init(&dhd->pub);
+#endif /* DHD_LOG_DUMP */
+#ifdef DHD_PKTDUMP_ROAM
+	dhd_dump_pkt_init(&dhd->pub);
+#endif /* DHD_PKTDUMP_ROAM */
+#ifdef DHD_PKT_LOGGING
+	dhd_os_attach_pktlog(&dhd->pub);
+#endif /* DHD_PKT_LOGGING */
+
 #ifdef WL_CFGVENDOR_SEND_HANG_EVENT
 	dhd->pub.hang_info = MALLOCZ(osh, VENDOR_SEND_HANG_EXT_INFO_LEN);
 	if (dhd->pub.hang_info == NULL) {
@@ -10516,71 +10509,6 @@ extern bool dhd_update_btfw_path(dhd_info_t *dhdinfo, char* btfw_path)
 	return TRUE;
 }
 #endif /* defined (BT_OVER_SDIO) */
-
-#ifdef CUSTOMER_HW4_DEBUG
-bool dhd_validate_chipid(dhd_pub_t *dhdp)
-{
-	uint chipid = dhd_bus_chip_id(dhdp);
-	uint config_chipid;
-
-#ifdef BCM4375_CHIP
-	config_chipid = BCM4375_CHIP_ID;
-#elif defined(BCM4361_CHIP)
-	config_chipid = BCM4361_CHIP_ID;
-#elif defined(BCM4359_CHIP)
-	config_chipid = BCM4359_CHIP_ID;
-#elif defined(BCM4358_CHIP)
-	config_chipid = BCM4358_CHIP_ID;
-#elif defined(BCM4354_CHIP)
-	config_chipid = BCM4354_CHIP_ID;
-#elif defined(BCM4339_CHIP)
-	config_chipid = BCM4339_CHIP_ID;
-#elif defined(BCM4335_CHIP)
-	config_chipid = BCM4335_CHIP_ID;
-#elif defined(BCM43430_CHIP)
-	config_chipid = BCM43430_CHIP_ID;
-#elif defined(BCM43018_CHIP)
-	config_chipid = BCM43018_CHIP_ID;
-#elif defined(BCM43455_CHIP)
-	config_chipid = BCM4345_CHIP_ID;
-#elif defined(BCM43454_CHIP)
-	config_chipid = BCM43454_CHIP_ID;
-#elif defined(BCM43012_CHIP_)
-	config_chipid = BCM43012_CHIP_ID;
-#else
-	DHD_ERROR(("%s: Unknown chip id, if you use new chipset,"
-		" please add CONFIG_BCMXXXX into the Kernel and"
-		" BCMXXXX_CHIP definition into the DHD driver\n",
-		__FUNCTION__));
-	config_chipid = 0;
-
-	return FALSE;
-#endif /* BCM4354_CHIP */
-
-#if defined(BCM4354_CHIP) && defined(SUPPORT_MULTIPLE_REVISION)
-	if (chipid == BCM4350_CHIP_ID && config_chipid == BCM4354_CHIP_ID) {
-		return TRUE;
-	}
-#endif /* BCM4354_CHIP && SUPPORT_MULTIPLE_REVISION */
-#if defined(BCM4358_CHIP) && defined(SUPPORT_MULTIPLE_REVISION)
-	if (chipid == BCM43569_CHIP_ID && config_chipid == BCM4358_CHIP_ID) {
-		return TRUE;
-	}
-#endif /* BCM4358_CHIP && SUPPORT_MULTIPLE_REVISION */
-#if defined(BCM4359_CHIP)
-	if (chipid == BCM4355_CHIP_ID && config_chipid == BCM4359_CHIP_ID) {
-		return TRUE;
-	}
-#endif /* BCM4359_CHIP */
-#if defined(BCM4361_CHIP)
-	if (chipid == BCM4347_CHIP_ID && config_chipid == BCM4361_CHIP_ID) {
-		return TRUE;
-	}
-#endif /* BCM4361_CHIP */
-
-	return config_chipid == chipid;
-}
-#endif /* CUSTOMER_HW4_DEBUG */
 
 #if defined(BT_OVER_SDIO)
 wlan_bt_handle_t dhd_bt_get_pub_hndl(void)
@@ -11428,6 +11356,7 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #else
 	dhd->max_dtim_enable = FALSE;
 #endif /* ENABLE_MAX_DTIM_IN_SUSPEND */
+	dhd->disable_dtim_in_suspend = FALSE;
 #ifdef CUSTOM_SET_OCLOFF
 	dhd->ocl_off = FALSE;
 #endif /* CUSTOM_SET_OCLOFF */
@@ -12079,8 +12008,7 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 		DHD_ERROR(("%s ht_features set failed %d\n", __FUNCTION__, ret));
 	}
 #endif /* DISABLE_11N_PROPRIETARY_RATES */
-
-#if defined(DISABLE_HE_ENAB) ||defined(CUSTOM_CONTROL_HE_ENAB) 
+#if defined(DISABLE_HE_ENAB) ||defined(CUSTOM_CONTROL_HE_ENAB)
 #if defined(DISABLE_HE_ENAB)
 	control_he_enab = 0;
 #endif /* DISABLE_HE_ENAB */
@@ -13658,6 +13586,9 @@ void dhd_detach(dhd_pub_t *dhdp)
 #ifdef DHD_STATUS_LOGGING
 	dhd_detach_statlog(dhdp);
 #endif /* DHD_STATUS_LOGGING */
+#ifdef DHD_PKTDUMP_ROAM
+	dhd_dump_pkt_deinit(dhdp);
+#endif /* DHD_PKTDUMP_ROAM */
 #ifdef WL_CFGVENDOR_SEND_HANG_EVENT
 	if (dhd->pub.hang_info) {
 		MFREE(dhd->pub.osh, dhd->pub.hang_info, VENDOR_SEND_HANG_EXT_INFO_LEN);
@@ -14983,6 +14914,25 @@ int net_os_set_max_dtim_enable(struct net_device *dev, int val)
 			dhd->pub.max_dtim_enable = TRUE;
 		} else {
 			dhd->pub.max_dtim_enable = FALSE;
+		}
+	} else {
+		return -1;
+	}
+
+	return 0;
+}
+
+int net_os_set_disable_dtim_in_suspend(struct net_device *dev, int val)
+{
+	dhd_info_t *dhd = DHD_DEV_INFO(dev);
+
+	if (dhd) {
+		DHD_ERROR(("%s: Disable bcn_li_dtim in suspend : %s\n",
+			__FUNCTION__, (val ? "Enable" : "Disable")));
+		if (val) {
+			dhd->pub.disable_dtim_in_suspend = TRUE;
+		} else {
+			dhd->pub.disable_dtim_in_suspend = FALSE;
 		}
 	} else {
 		return -1;
@@ -18327,7 +18277,6 @@ int dhd_set_ap_isolate(dhd_pub_t *dhdp, uint32 idx, int val)
 }
 
 #ifdef DHD_FW_COREDUMP
-
 void dhd_schedule_memdump(dhd_pub_t *dhdp, uint8 *buf, uint32 size)
 {
 	unsigned long flags = 0;
@@ -18382,26 +18331,26 @@ void dhd_schedule_memdump(dhd_pub_t *dhdp, uint8 *buf, uint32 size)
 #endif /* DNGL_AXI_ERROR_LOGGING */
 		FALSE)
 	{
-#ifdef DHD_LOG_DUMP
+#if defined(DHD_DUMP_FILE_WRITE_FROM_KERNEL) && defined(DHD_LOG_DUMP)
 		log_dump_type_t *flush_type = NULL;
-#endif // endif
+#endif /* DHD_DUMP_FILE_WRITE_FROM_KERNEL && DHD_LOG_DUMP */
 		dhd_info->scheduled_memdump = FALSE;
 		(void)dhd_mem_dump((void *)dhdp->info, (void *)dump, 0);
+#if defined(DHD_DUMP_FILE_WRITE_FROM_KERNEL) && defined(DHD_LOG_DUMP)
 		/* for dongle init fail cases, 'dhd_mem_dump' does
-		* not call 'dhd_log_dump', so call it here.
-		*/
-#ifdef DHD_LOG_DUMP
+		 * not call 'dhd_log_dump', so call it here.
+		 */
 		flush_type = MALLOCZ(dhdp->osh,
-				sizeof(log_dump_type_t));
+			sizeof(log_dump_type_t));
 		if (flush_type) {
 			*flush_type = DLD_BUF_TYPE_ALL;
 			DHD_ERROR(("%s: calling log dump.. \n", __FUNCTION__));
 			dhd_log_dump(dhdp->info, flush_type, 0);
 		}
-#endif /* DHD_LOG_DUMP */
+#endif /* DHD_DUMP_FILE_WRITE_FROM_KERNEL && DHD_LOG_DUMP */
 		return;
 	}
-#endif /* DEBUG_DNGL_INIT_FAIL || DHD_ERPOM */
+#endif /* DEBUG_DNGL_INIT_FAIL || DHD_ERPOM || DNGL_AXI_ERROR_LOGGING */
 
 	dhd_info->scheduled_memdump = TRUE;
 	/* bus busy bit for mem dump will be cleared in mem dump
@@ -18441,6 +18390,12 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 	}
 	DHD_GENERAL_UNLOCK(dhdp, flags);
 
+#ifdef DHD_SSSR_DUMP
+	if (dhdp->sssr_inited && dhdp->collect_sssr) {
+		dhdpcie_sssr_dump(dhdp);
+	}
+	dhdp->collect_sssr = FALSE;
+#endif /* DHD_SSSR_DUMP */
 #if defined(WL_CFG80211) && defined(DHD_FILE_DUMP_EVENT)
 	dhd_wait_for_file_dump(dhdp);
 #endif /* WL_CFG80211 && DHD_FILE_DUMP_EVENT */
@@ -18657,9 +18612,9 @@ dhd_sssr_dump_d11_buf_after(void *dev, const void *user_buf, uint32 len, int cor
 }
 
 static void
-dhd_sssr_dump(void *handle, void *event_info, u8 event)
+dhd_sssr_dump_to_file(dhd_info_t* dhdinfo)
 {
-	dhd_info_t *dhd = handle;
+	dhd_info_t *dhd = dhdinfo;
 	dhd_pub_t *dhdp;
 	int i;
 	char before_sr_dump[128];
@@ -18677,6 +18632,7 @@ dhd_sssr_dump(void *handle, void *event_info, u8 event)
 	dhdp = &dhd->pub;
 
 	DHD_GENERAL_LOCK(dhdp, flags);
+	DHD_BUS_BUSY_SET_IN_SSSRDUMP(dhdp);
 	if (DHD_BUS_CHECK_DOWN_OR_DOWN_IN_PROGRESS(dhdp)) {
 		DHD_GENERAL_UNLOCK(dhdp, flags);
 		DHD_ERROR(("%s: bus is down! can't collect sssr dump. \n", __FUNCTION__));
@@ -18742,9 +18698,8 @@ exit:
 }
 
 void
-dhd_schedule_sssr_dump(dhd_pub_t *dhdp, uint32 dump_mode)
+dhd_write_sssr_dump(dhd_pub_t *dhdp, uint32 dump_mode)
 {
-	unsigned long flags = 0;
 	dhdp->sssr_dump_mode = dump_mode;
 
 	/*
@@ -18757,21 +18712,17 @@ dhd_schedule_sssr_dump(dhd_pub_t *dhdp, uint32 dump_mode)
 	return;
 #endif /* !DHD_DUMP_FILE_WRITE_FROM_KERNEL */
 
-	/* bus busy bit for sssr dump will be cleared in sssr dump
-	* work item context, after sssr dump files are created
-	*/
-	DHD_GENERAL_LOCK(dhdp, flags);
-	DHD_BUS_BUSY_SET_IN_SSSRDUMP(dhdp);
-	DHD_GENERAL_UNLOCK(dhdp, flags);
+	/*
+	 * dhd_mem_dump -> dhd_sssr_dump -> dhd_write_sssr_dump
+	 * Without workqueue -
+	 * DUMP_TYPE_DONGLE_INIT_FAILURE/DUMP_TYPE_DUE_TO_BT/DUMP_TYPE_SMMU_FAULT
+	 * : These are called in own handler, not in the interrupt context
+	 * With workqueue - all other DUMP_TYPEs : dhd_mem_dump is called in workqueue
+	 * Thus, it doesn't neeed to dump SSSR in workqueue
+	 */
+	DHD_ERROR(("%s: writing sssr dump to file... \n", __FUNCTION__));
+	dhd_sssr_dump_to_file(dhdp->info);
 
-	if (dhdp->info->no_wq_sssrdump) {
-		dhd_sssr_dump(dhdp->info, 0, 0);
-		return;
-	}
-
-	DHD_ERROR(("%s: scheduling sssr dump.. \n", __FUNCTION__));
-	dhd_deferred_schedule_work(dhdp->info->dhd_deferred_wq, NULL,
-		DHD_WQ_WORK_SSSR_DUMP, dhd_sssr_dump, DHD_WQ_WORK_PRIORITY_HIGH);
 }
 #endif /* DHD_SSSR_DUMP */
 
@@ -18824,7 +18775,8 @@ static void
 dhd_print_buf_addr(dhd_pub_t *dhdp, char *name, void *buf, unsigned int size)
 {
 	if ((dhdp->memdump_enabled == DUMP_MEMONLY) ||
-		(dhdp->memdump_enabled == DUMP_MEMFILE_BUGON)) {
+		(dhdp->memdump_enabled == DUMP_MEMFILE_BUGON) ||
+		(dhdp->memdump_type == DUMP_TYPE_SMMU_FAULT)) {
 #if defined(CONFIG_ARM64)
 		DHD_ERROR(("-------- %s: buf(va)=%llx, buf(pa)=%llx, bufsize=%d\n",
 			name, (uint64)buf, (uint64)__virt_to_phys((ulong)buf), size));
@@ -23190,13 +23142,13 @@ dhd_dump_file_manage_enqueue(dhd_pub_t *dhd, char *dump_path, char *fname)
 #ifdef DHD_MAP_LOGGING
 /* Will be called from SMMU fault handler */
 void
-dhd_smmu_fault_handler(uint32 axid, uint32 fault_addr)
+dhd_smmu_fault_handler(uint32 axid, ulong fault_addr)
 {
 	dhd_pub_t *dhdp = (dhd_pub_t *)g_dhd_pub;
 	uint32 irq = (uint32)-1;
 
 	DHD_ERROR(("%s: Trigger SMMU Fault\n", __FUNCTION__));
-	DHD_ERROR(("%s: axid:0x%x, fault_addr:0x%x", __FUNCTION__, axid, fault_addr));
+	DHD_ERROR(("%s: axid:0x%x, fault_addr:0x%lx", __FUNCTION__, axid, fault_addr));
 	dhdp->smmu_fault_occurred = TRUE;
 #ifdef DNGL_AXI_ERROR_LOGGING
 	dhdp->axi_error = TRUE;
@@ -23209,13 +23161,18 @@ dhd_smmu_fault_handler(uint32 axid, uint32 fault_addr)
 	if (irq != (uint32)-1) {
 		disable_irq_nosync(irq);
 	}
+
+	/* Take debug information first */
+	DHD_OS_WAKE_LOCK(dhdp);
+	dhd_prot_smmu_fault_dump(dhdp);
+	DHD_OS_WAKE_UNLOCK(dhdp);
+
+	/* Take AXI information if possible */
 #ifdef DNGL_AXI_ERROR_LOGGING
 #ifdef DHD_USE_WQ_FOR_DNGL_AXI_ERROR
 	dhd_axi_error_dispatch(dhdp);
 #else
-	if (dhd_axi_error(dhdp) == FALSE) {
-		BUG_ON(1);
-	}
+	dhd_axi_error(dhdp);
 #endif /* DHD_USE_WQ_FOR_DNGL_AXI_ERROR */
 #endif /* DNGL_AXI_ERROR_LOGGING */
 }
@@ -23367,7 +23324,7 @@ dhd_cleanup_m4_state_work(dhd_pub_t *dhdp, int ifidx)
 	dhd_info_t *dhdinfo;
 	dhd_if_t *ifp;
 
-	if (ifidx < 0 || ifidx >= DHD_MAX_IFS) {
+	if ((ifidx < 0) || (ifidx >= DHD_MAX_IFS)) {
 		DHD_ERROR(("%s: invalid ifidx %d\n", __FUNCTION__, ifidx));
 		return;
 	}
@@ -23417,6 +23374,59 @@ dhd_os_hp2punlock(dhd_pub_t *pub, unsigned long flags)
 static void
 dhd_axi_error_dump(void *handle, void *event_info, u8 event)
 {
+	dhd_info_t *dhd = (dhd_info_t *)handle;
+	dhd_pub_t *dhdp = NULL;
+
+	if (!dhd) {
+		DHD_ERROR(("%s: dhd is NULL\n", __FUNCTION__));
+		goto exit;
+	}
+
+	dhdp = &dhd->pub;
+	if (!dhdp) {
+		DHD_ERROR(("%s: dhdp is NULL\n", __FUNCTION__));
+		goto exit;
+	}
+
+	/**
+	 * First save axi error information to a file
+	 * because panic should happen right after this.
+	 * After dhd reset, dhd reads the file, and do hang event process
+	 * to send axi error stored on the file to Bigdata server
+	 */
+	if (dhdp->axi_err_dump->etd_axi_error_v1.version != HND_EXT_TRAP_AXIERROR_VERSION_1) {
+		DHD_ERROR(("%s: Invalid AXI version: 0x%x\n",
+			__FUNCTION__, dhdp->axi_err_dump->etd_axi_error_v1.version));
+	}
+
+	DHD_OS_WAKE_LOCK(dhdp);
+#ifdef DHD_FW_COREDUMP
+#ifdef DHD_SSSR_DUMP
+	dhdp->collect_sssr = TRUE;
+#endif /* DHD_SSSR_DUMP */
+	DHD_ERROR(("%s: scheduling mem dump.. \n", __FUNCTION__));
+	dhd_schedule_memdump(dhdp, dhdp->soc_ram, dhdp->soc_ram_length);
+#endif /* DHD_FW_COREDUMP */
+	DHD_OS_WAKE_UNLOCK(dhdp);
+
+exit:
+	/* Trigger kernel panic after taking necessary dumps */
+	BUG_ON(1);
+}
+
+void dhd_schedule_axi_error_dump(dhd_pub_t *dhdp, void *type)
+{
+	DHD_ERROR(("%s: scheduling axi_error_dump.. \n", __FUNCTION__));
+	dhd_deferred_schedule_work(dhdp->info->dhd_deferred_wq,
+		type, DHD_WQ_WORK_AXI_ERROR_DUMP,
+		dhd_axi_error_dump, DHD_WQ_WORK_PRIORITY_HIGH);
+}
+#endif /* DNGL_AXI_ERROR_LOGGING */
+
+#ifdef BCMPCIE
+static void
+dhd_cto_recovery_handler(void *handle, void *event_info, u8 event)
+{
 	dhd_info_t *dhd = handle;
 	dhd_pub_t *dhdp = NULL;
 
@@ -23427,59 +23437,18 @@ dhd_axi_error_dump(void *handle, void *event_info, u8 event)
 	}
 
 	dhdp = &dhd->pub;
-
-	/**
-	 * First save axi error information to a file
-	 * because panic should happen right after this.
-	 * After dhd reset, dhd reads the file, and do hang event process
-	 * to send axi error stored on the file  to Bigdata server
-	 */
-	if (dhdp->axi_err_dump->etd_axi_error_v1.version != HND_EXT_TRAP_AXIERROR_VERSION_1) {
-		DHD_ERROR(("%s: Invalid AXI version: 0x%x\n",
-			__FUNCTION__, dhdp->axi_err_dump->etd_axi_error_v1.version));
-		BUG_ON(1);
-		return;
-	}
-	DHD_OS_WAKE_LOCK(dhdp);
-	dhd_prot_debug_info_print(dhdp);
-#ifdef DHD_MAP_LOGGING
-	osl_dma_map_dump(dhdp->osh);
-#endif /* DHD_MAP_LOGGING */
-#ifdef DHD_MAP_PKTID_LOGGING
-	dhd_pktid_logging_dump(dhdp);
-#endif /* DHD_MAP_PKTID_LOGGING */
-#ifdef DHD_FW_COREDUMP
-	/* Dump all useful data including memdump, axi_error_info */
-	if (dhdp->memdump_enabled) {
-		/* Avoid bugon inside memdump routine */
-		dhdp->memdump_enabled = DUMP_MEMFILE;
-		dhdp->memdump_type = DUMP_TYPE_SMMU_FAULT;
-#ifdef DHD_SSSR_DUMP
-		if (dhdp->sssr_inited) {
-			dhdpcie_sssr_dump(dhdp);
-		}
-#endif /* DHD_SSSR_DUMP */
-		dhd_bus_mem_dump(dhdp);
-	} else {
-	/* Use Wifi HAL to create axi error info file for android DE policy */
-#if defined(WL_CFG80211) && defined(DHD_FILE_DUMP_EVENT)
-		dhd_wait_for_file_dump(dhdp);
-#endif /* WL_CFG80211 && DHD_FILE_DUMP_EVENT */
-	}
-#endif /* DHD_FW_COREDUMP */
-	DHD_OS_WAKE_UNLOCK(dhdp);
-
-	BUG_ON(1);
-	return;
+	dhdpcie_cto_recovery_handler(dhdp);
 }
-void dhd_schedule_axi_error_dump(dhd_pub_t *dhdp, void *type)
+
+void
+dhd_schedule_cto_recovery(dhd_pub_t *dhdp)
 {
-	DHD_ERROR(("%s: scheduling axi_error_dump.. \n", __FUNCTION__));
+	DHD_ERROR(("%s: scheduling cto recovery.. \n", __FUNCTION__));
 	dhd_deferred_schedule_work(dhdp->info->dhd_deferred_wq,
-		type, DHD_WQ_WORK_AXI_ERROR_DUMP,
-		dhd_axi_error_dump, DHD_WQ_WORK_PRIORITY_HIGH);
+		NULL, DHD_WQ_WORK_CTO_RECOVERY,
+		dhd_cto_recovery_handler, DHD_WQ_WORK_PRIORITY_HIGH);
 }
-#endif /* DNGL_AXI_ERROR_LOGGING */
+#endif /* BCMPCIE */
 
 #ifdef SUPPORT_SET_TID
 /*

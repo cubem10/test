@@ -52,3 +52,4 @@ struct npu_vertex_ctx {
 
 int npu_vertex_probe(struct npu_vertex *vertex, struct device *parent);
 #endif
+

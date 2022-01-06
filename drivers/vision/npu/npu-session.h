@@ -15,6 +15,7 @@
 
 #include <linux/types.h>
 #include <linux/mutex.h>
+#include <linux/sched.h>
 
 #include "vs4l.h"
 
@@ -27,8 +28,18 @@
 #include "drv_usr_if.h"
 
 enum npu_session_state {
+	NPU_SESSION_STATE_OPEN,
+	NPU_SESSION_STATE_REGISTER,
+	NPU_SESSION_STATE_GRAPH_ION_MAP,
+	NPU_SESSION_STATE_WGT_KALLOC,
+	NPU_SESSION_STATE_IOFM_KALLOC,
+	NPU_SESSION_STATE_IOFM_ION_ALLOC,
+	NPU_SESSION_STATE_IMB_ION_ALLOC,
+	NPU_SESSION_STATE_FORMAT_IN,
+	NPU_SESSION_STATE_FORMAT_OT,
 	NPU_SESSION_STATE_START,
 	NPU_SESSION_STATE_STOP,
+	NPU_SESSION_STATE_CLOSE,
 };
 
 struct temp_av {
@@ -45,13 +56,6 @@ struct temp_av {
 	u32 cstride;
 };
 
-#if 0
-struct IOFM_VB_index {
-	u32 incl_index;
-	u32 otcl_index;
-};
-#endif
-
 struct ncp_info {
 	u32 address_vector_cnt;
 	struct addr_info ncp_addr;
@@ -65,6 +69,9 @@ struct npu_session {
 	void *exynos;
 	struct npu_vertex_ctx vctx;
 	const struct npu_session_ops	*gops;
+	int (*undo_cb)(struct npu_session *);
+
+	unsigned long ss_state;
 
 	u32 IFM_cnt;
 	u32 OFM_cnt;
@@ -97,7 +104,11 @@ struct npu_session {
 	struct mutex *global_lock;
 
 	struct mbox_process_dat mbox_process_dat;
+
+	pid_t pid;
 };
+
+typedef int (*session_cb)(struct npu_session *);
 
 struct npu_session_ops {
 	int (*control)(struct npu_session *, struct npu_frame *);
@@ -112,11 +123,18 @@ struct npu_session_ops {
 
 struct addr_info *find_addr_info(struct npu_session *session, u32 av_index, mem_opt_e mem_type, u32 cl_index);
 npu_errno_t chk_nw_result_no_error(struct npu_session *session);
-int npu_session_create(struct npu_session **session, void *cookie, void *memory);
-int npu_session_destroy(struct npu_session *session, u32 state);
-int npu_session_s_graph(struct npu_session *session,  struct vs4l_graph *info);
-int npu_session_param(struct npu_session *session, struct vs4l_param_list *plist);
+int npu_session_open(struct npu_session **session, void *cookie, void *memory);
 int npu_session_close(struct npu_session *session);
-int npu_session_release_graph(struct npu_session *session);
+int npu_session_s_graph(struct npu_session *session, struct vs4l_graph *info);
+int npu_session_param(struct npu_session *session, struct vs4l_param_list *plist);
+int npu_session_NW_CMD_LOAD(struct npu_session *session);
+int npu_session_NW_CMD_UNLOAD(struct npu_session *session);
+int npu_session_NW_CMD_STREAMON(struct npu_session *session);
+int npu_session_NW_CMD_STREAMOFF(struct npu_session *session);
+int npu_session_register_undo_cb(struct npu_session *session, session_cb cb);
+int npu_session_execute_undo_cb(struct npu_session *session);
+int npu_session_undo_open(struct npu_session *session);
+int npu_session_undo_s_graph(struct npu_session *session);
+int npu_session_undo_close(struct npu_session *session);
 
 #endif

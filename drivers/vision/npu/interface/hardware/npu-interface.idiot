@@ -287,21 +287,19 @@ TESTDEF(interface_02_Put_FR,
 		u32 nSeed = 1;
 		int mid = 17;
 		int mbox_idx = NPU_MBOX_REQUEST_HIGH;
-		struct mbox_process_dat *process_dat;
-		process_dat = kmalloc(sizeof(struct mbox_process_dat), GFP_KERNEL);
-		IDIOT_ASSERT_NEQ(process_dat, NULL, %p);
+		struct mbox_process_dat process_dat;
+		memset(&process_dat, 0, sizeof(process_dat));
 
 		fr.cmd = NPU_FRAME_CMD_Q;
 		fr.uid = nSeed;
 		fr.frame_id = nSeed + 1;
-		process_dat->address_vector_cnt = 10;
-		process_dat->address_vector_start_daddr = 100;
+		process_dat.address_vector_cnt = 10;
+		process_dat.address_vector_start_daddr = 100;
 		fr.mbox_process_dat = process_dat;
 		IDIOT_ASSERT_EQ(npu_interface_open(&test_system), 0, %d);
 		IDIOT_ASSERT_EQ(fr_req_manager(mid, &fr), TRUE, %d);
 		IDIOT_ASSERT_EQ(test_Fake_FW(mbox_idx, mid, 0, IDIOT_DO_PROC), 0, %d);
 		IDIOT_ASSERT_EQ(test_Fake_Proto(mid, TRUE, IDIOT_DO_PROC), TRUE, %d);
-		kfree(process_dat);
 )
 
 TESTDEF(interface_03_Put_PURGE,

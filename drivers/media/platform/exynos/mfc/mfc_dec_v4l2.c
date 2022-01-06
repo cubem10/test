@@ -273,6 +273,7 @@ static int mfc_dec_g_fmt_vid_cap_mplane(struct file *file, void *priv,
 {
 	struct mfc_ctx *ctx = fh_to_mfc_ctx(file->private_data);
 	struct mfc_dec *dec = ctx->dec_priv;
+	struct mfc_dev *dev = ctx->dev;	
 	struct v4l2_pix_format_mplane *pix_fmt_mp = &f->fmt.pix_mp;
 	struct mfc_raw_info *raw;
 	int i;
@@ -280,8 +281,11 @@ static int mfc_dec_g_fmt_vid_cap_mplane(struct file *file, void *priv,
 	mfc_debug_enter();
 
 	mfc_debug(2, "dec dst g_fmt, state: %d\n", ctx->state);
+	MFC_TRACE_CTX("** DEC g_fmt(state:%d wait_state:%d)\n",
+			ctx->state, ctx->wait_state);	
 
 	if (ctx->state == MFCINST_GOT_INST ||
+	    ctx->state == MFCINST_RES_CHANGE_INIT ||		
 	    ctx->state == MFCINST_RES_CHANGE_FLUSH ||
 	    ctx->state == MFCINST_RES_CHANGE_END) {
 		/* If there is no source buffer to parsing, we can't SEQ_START */
@@ -360,6 +364,7 @@ static int mfc_dec_g_fmt_vid_cap_mplane(struct file *file, void *priv,
 	if ((ctx->wait_state & WAIT_G_FMT) != 0) {
 		ctx->wait_state &= ~(WAIT_G_FMT);
 		mfc_debug(2, "clear WAIT_G_FMT %d\n", ctx->wait_state);
+		MFC_TRACE_CTX("** DEC clear WAIT_G_FMT(wait_state %d)\n", ctx->wait_state);		
 	}
 
 	mfc_debug_leave();
@@ -697,6 +702,7 @@ static int mfc_dec_querybuf(struct file *file, void *priv,
 static int mfc_dec_qbuf(struct file *file, void *priv, struct v4l2_buffer *buf)
 {
 	struct mfc_ctx *ctx = fh_to_mfc_ctx(file->private_data);
+	struct mfc_dev *dev = ctx->dev;
 	int ret = -EINVAL;
 
 	mfc_debug_enter();
@@ -721,7 +727,7 @@ static int mfc_dec_qbuf(struct file *file, void *priv, struct v4l2_buffer *buf)
 			return -EIO;
 		}
 
-		mfc_qos_update_framerate(ctx);
+		mfc_qos_update_framerate(ctx, buf->m.planes[0].bytesused, 0);
 
 		if (!buf->m.planes[0].bytesused) {
 			buf->m.planes[0].bytesused = buf->m.planes[0].length;
@@ -733,8 +739,11 @@ static int mfc_dec_qbuf(struct file *file, void *priv, struct v4l2_buffer *buf)
 		ret = vb2_qbuf(&ctx->vq_src, buf);
 	} else {
 		mfc_debug(4, "dec dst buf[%d] Q\n", buf->index);
+		mfc_qos_update_framerate(ctx, buf->m.planes[0].bytesused, 1);
 		ret = vb2_qbuf(&ctx->vq_dst, buf);
 	}
+
+	atomic_inc(&dev->queued_cnt);
 
 	mfc_debug_leave();
 	return ret;
@@ -785,11 +794,15 @@ static int mfc_dec_dqbuf(struct file *file, void *priv, struct v4l2_buffer *buf)
 		}
 
 		/* Memcpy from dec->hdr10_plus_info to shared memory */
-		src_sei_meta = &dec->hdr10_plus_info[buf->index];
-		if (dec->sh_handle_hdr.vaddr != NULL) {
-			dst_sei_meta = (struct hdr10_plus_meta *)
-				dec->sh_handle_hdr.vaddr + buf->index;
-			memcpy(dst_sei_meta, src_sei_meta, sizeof(struct hdr10_plus_meta));
+		if (dec->hdr10_plus_info) {
+			src_sei_meta = &dec->hdr10_plus_info[buf->index];
+			if (dec->sh_handle_hdr.vaddr != NULL) {
+				dst_sei_meta = (struct hdr10_plus_meta *)
+					dec->sh_handle_hdr.vaddr + buf->index;
+				memcpy(dst_sei_meta, src_sei_meta, sizeof(struct hdr10_plus_meta));
+			}
+		} else {
+			mfc_err_ctx("[HDR+] HDR10 plus cannot be copied\n");
 		}
 	}
 	mfc_debug_leave();
@@ -1154,7 +1167,7 @@ static int mfc_dec_g_crop(struct file *file, void *priv,
 	mfc_debug_enter();
 
 	if (!ready_to_get_crop(ctx)) {
-		mfc_debug(2, "ready to get crop failed\n");
+		mfc_err_ctx("ready to get crop failed\n");
 		return -EINVAL;
 	}
 

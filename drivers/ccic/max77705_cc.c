@@ -384,6 +384,14 @@ static irqreturn_t max77705_ccpinstat_irq(int irq, void *data)
 	switch (ccpinstat) {
 	case NO_DETERMINATION:
 			msg_maxim("CCPINSTAT (NO_DETERMINATION)");
+#if defined(CONFIG_CCIC_NOTIFIER)
+		if (usbc_data->ccrp_state) {
+			usbc_data->ccrp_state = 0;
+			max77705_ccic_event_work(usbc_data,
+				CCIC_NOTIFY_DEV_BATTERY, CCIC_NOTIFY_ID_WATER_CABLE,
+				CCIC_NOTIFY_DETACH, 0/*rprd*/, 0);
+		}
+#endif
 			break;
 	case CC1_ACTIVE:
 			msg_maxim("CCPINSTAT (CC1_ACTIVE)");
@@ -524,6 +532,9 @@ static void max77705_ccstat_irq_handler(void *data, int irq)
 #if defined(CONFIG_USB_HOST_NOTIFY)
 	struct otg_notify *o_notify = get_otg_notify();
 #endif
+#ifdef CONFIG_USB_NOTIFY_PROC_LOG
+	int event;
+#endif
 
 	max77705_read_reg(usbc_data->muic, REG_CC_STATUS0, &cc_data->cc_status0);
 	ccstat =  (cc_data->cc_status0 & BIT_CCStat) >> FFS(BIT_CCStat);
@@ -587,6 +598,7 @@ static void max77705_ccstat_irq_handler(void *data, int irq)
 			msg_maxim("ccstat : cc_No_Connection");
 			usbc_data->pd_data->cc_status = CC_NO_CONN;
 			usbc_data->is_samsung_accessory_enter_mode = 0;
+			usbc_data->pn_flag = false;
 			usbc_data->pd_support = false;
 #if defined(CONFIG_DUAL_ROLE_USB_INTF)
 			if (!usbc_data->try_state_change)
@@ -650,6 +662,7 @@ static void max77705_ccstat_irq_handler(void *data, int irq)
 	case cc_SOURCE:
 			msg_maxim("ccstat : cc_SOURCE");
 			usbc_data->pd_data->cc_status = CC_SRC;
+			usbc_data->pn_flag = false;
 #if defined(CONFIG_DUAL_ROLE_USB_INTF)
 			usbc_data->power_role = DUAL_ROLE_PROP_PR_SRC;
 			if (usbc_data->dual_role != NULL &&
@@ -679,6 +692,10 @@ static void max77705_ccstat_irq_handler(void *data, int irq)
 			break;
 	case cc_Audio_Accessory:
 			msg_maxim("ccstat : cc_Audio_Accessory");
+#ifdef CONFIG_USB_NOTIFY_PROC_LOG
+			event = NOTIFY_EXTRA_USB_ANALOGAUDIO;
+			store_usblog_notify(NOTIFY_EXTRA, (void *)&event, NULL);
+#endif
 			usbc_data->acc_type = CCIC_DOCK_TYPEC_ANALOG_EARPHONE;
 			max77705_process_check_accessory(usbc_data);
 			break;

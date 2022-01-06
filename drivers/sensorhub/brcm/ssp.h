@@ -40,7 +40,7 @@
 #include <linux/ssp_platformdata.h>
 #include <linux/spi/spi.h>
 #include "bbdpl/bbd.h"
-#include <linux/sec_sysfs.h>
+#include <linux/sec_class.h>
 #include "sensor_list.h"
 
 #ifdef CONFIG_SENSORS_SSP_HIFI_BATCHING
@@ -119,6 +119,9 @@
 
 #define SSP_DEBUG_TIME_FLAG_ON		"SSP:DEBUG_TIME=1"
 #define SSP_DEBUG_TIME_FLAG_OFF		"SSP:DEBUG_TIME=0"
+
+#define SSP_HALL_IC_ON			"SSP:HALL_IC=1"
+#define SSP_HALL_IC_OFF			"SSP:HALL_IC=0"
 
 #if 0 //def	CONFIG_SENSORS_SSP_PROX_AUTOCAL_AMS 
 #define CONFIG_SENSORS_SSP_PROX_ADC_CAL
@@ -206,6 +209,8 @@ enum {
 #define MSG2SSP_AP_STATUS_RESET		0xD5
 #define MSG2SSP_AP_STATUS_POW_CONNECTED	0xD6
 #define MSG2SSP_AP_STATUS_POW_DISCONNECTED	0xD7
+#define MSG2SSP_AP_STATUS_SCONTEXT_WAKEUP	0x97
+#define MSG2SSP_AP_STATUS_SCONTEXT_SLEEP	0x98
 #define MSG2SSP_AP_TEMPHUMIDITY_CAL_DONE	0xDA
 #define MSG2SSP_AP_MCU_SET_DUMPMODE		0xDB
 #define MSG2SSP_AP_MCU_DUMP_CHECK		0xDC
@@ -285,7 +290,7 @@ enum {
 #define MSG2SSP_GET_READ_COPR		0x93
 #define MSG2SSP_READ_COPR_ON_OFF	0x94
 #define MSG2SSP_GET_COPR_ROIX		0x95
-
+#define MSG2SSP_HALL_IC_ON_OFF		0x96
 /* voice data */
 #define TYPE_WAKE_UP_VOICE_SERVICE			0x01
 #define TYPE_WAKE_UP_VOICE_SOUND_SOURCE_AM		0x01
@@ -375,10 +380,11 @@ enum {
 #define CAMERA_GYROSCOPE_SYNC 7700000ULL /*7.7ms*/
 #define CAMERA_GYROSCOPE_VDIS_SYNC 6600000ULL /*6.6ms*/
 #define CAMERA_GYROSCOPE_SUPER_VDIS_SYNC 5500000ULL /*5.5ms*/
+#define CAMERA_GYROSCOPE_ULTRA_VDIS_SYNC 4400000ULL /*4.4ms*/
 #define CAMERA_GYROSCOPE_SYNC_DELAY 10000000ULL
 #define CAMERA_GYROSCOPE_VDIS_SYNC_DELAY 5000000ULL
 #define CAMERA_GYROSCOPE_SUPER_VDIS_SYNC_DELAY 2000000ULL
-
+#define CAMERA_GYROSCOPE_ULTRA_VDIS_SYNC_DELAY 1000000ULL
 
 /** HIFI Sensor **/
 #define SIZE_TIMESTAMP_BUFFER	1000
@@ -509,6 +515,9 @@ struct sensor_value {
 #ifdef CONFIG_SENSORS_SSP_LIGHT_ADDING_LUMINANCE
 			u8 brightness;
 #endif
+#ifdef CONFIG_SENSORS_SSP_LIGHT_LUX_RAW
+			u32 lux_raw;
+#endif
 #else
 			u16 a_gain;
 			u8 a_time;
@@ -517,7 +526,8 @@ struct sensor_value {
 			u8 a_time;
 			u8 a_gain;
 #endif
-		};
+		} __attribute__((__packed__));
+
 #ifdef CONFIG_SENSORS_SSP_IRDATA_FOR_CAMERA
 		struct {
 			u16 irdata;
@@ -527,7 +537,7 @@ struct sensor_value {
 			u16 ir_w;
 #ifdef CONFIG_SENSORS_SSP_LIGHT_MAX_GAIN_2BYTE
 			u16 ir_a_gain;
-			u8 ir_a_time;
+			u8 ir_a_time; // ir_brightness;
 #else
 			u8 ir_a_time;
 			u8 ir_a_gain;
@@ -547,6 +557,10 @@ struct sensor_value {
 #else
 /* CONFIG_SENSORS_SSP_TMD4903, CONFIG_SENSORS_SSP_TMD3782, CONFIG_SENSORS_SSP_TMD4904 */
 			u16 prox_adc;
+			u32 light;
+#endif
+#if defined(CONFIG_SENSORS_SSP_PROX_LIGHT_DIFF)
+			u32 light_diff;
 #endif
 		} __attribute__((__packed__));
 #ifdef CONFIG_SENSORS_SSP_PROX_ADC_CAL
@@ -583,6 +597,17 @@ struct sensor_value {
 		u8 pickup_gesture;
 		u8 call_gesture;
 		u8 wakeup_move_event[2]; // wakeup motion[0] & move[1] event come sametime
+		struct {
+			u8 pocket_mode;
+			u8 pocket_reason;
+			u32 pocket_base_proxy;
+			u32 pocket_current_proxy;
+			u32 pocket_release_diff;
+			u32 pocket_min_release;
+			u32 pocket_light_data;
+			u32 pocket_temp;
+		} __attribute__((__packed__));
+		u8 led_cover_event;
 		u8 scontext_buf[SCONTEXT_DATA_SIZE];
 		struct {
 			u8 proximity_pocket_detect;
@@ -995,6 +1020,8 @@ struct ssp_data {
         bool IsAPsuspend;
 /* no ack about mcu_resp pin*/
         bool IsNoRespCnt;
+/* hall ic */
+	bool hall_ic_status; // 0: open 1: close
 };
 
 //#if defined (CONFIG_SENSORS_SSP_VLTE)
@@ -1176,6 +1203,8 @@ void report_uncalib_accel_data(struct ssp_data *data, int sensor_type, struct se
 void report_wakeup_motion_data(struct ssp_data *data, int sensor_type, struct sensor_value *wakeup_motion_data);
 void report_call_gesture_data(struct ssp_data *data, int sensor_type, struct sensor_value *call_gesture_data);
 void report_move_detector_data(struct ssp_data *data, int sensor_type, struct sensor_value *move_detector_data);
+void report_pocket_mode_data(struct ssp_data *data, int sensor_type, struct sensor_value *pocket_data);
+void report_led_cover_event_data(struct ssp_data *data, int sensor_type, struct sensor_value *led_cover_event_data);
 
 unsigned int get_module_rev(struct ssp_data *data);
 void reset_mcu(struct ssp_data *data);
@@ -1231,6 +1260,8 @@ irqreturn_t ssp_shub_int_handler(int irq, void *device);
 int send_panel_information(struct panel_bl_event_data *evdata);
 #endif
 int get_patch_version(int ap_type, int hw_rev);
+
+int send_hall_ic_status(bool enable);
 
 //#if defined (CONFIG_SENSORS_SSP_VLTE)
 //int ssp_ckeck_lcd(int);

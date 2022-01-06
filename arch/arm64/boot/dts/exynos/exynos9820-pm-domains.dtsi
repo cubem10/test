@@ -78,6 +78,7 @@
 		compatible = "samsung,exynos-pd";
 		reg = <0x0 0x15862100 0x20>;
 		cal_id = <0xB1380007>;
+		need_smc = <0x18410204>;
 		status = "okay";
 	};
 

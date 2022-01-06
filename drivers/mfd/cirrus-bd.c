@@ -92,6 +92,10 @@ void cirrus_bd_store_values_right(void)
 	regmap_read(cirrus_bd->regmap_right, CS35L41_BD_ABNORMAL_MUTE,
 			&abnm_mute_right);
 
+	if (max_temp_right > (99 * (1 << CS35L41_BD_TEMP_RADIX)) &&
+		over_temp_count_right == 0)
+		max_temp_right = (99 * (1 << CS35L41_BD_TEMP_RADIX));
+
 	cirrus_bd->over_temp_count_right += over_temp_count_right;
 	cirrus_bd->over_exc_count_right += over_exc_count_right;
 	if (max_exc_right > cirrus_bd->max_exc_right)
@@ -106,14 +110,14 @@ void cirrus_bd_store_values_right(void)
 	cirrus_bd->last_update = ktime_to_ns(ktime_get());
 
 	dev_info(cirrus_bd->dev, "Values stored:\n");
-	dev_info(cirrus_bd->dev, "Max Excursion Right:\t\t%d.%d\n",
+	dev_info(cirrus_bd->dev, "Max Excursion Right:\t\t%d.%04d\n",
 				cirrus_bd->max_exc_right >> CS35L41_BD_EXC_RADIX,
 				(cirrus_bd->max_exc_right &
 				(((1 << CS35L41_BD_EXC_RADIX) - 1))) *
 				10000 / (1 << CS35L41_BD_EXC_RADIX));
 	dev_info(cirrus_bd->dev, "Over Excursion Count Right:\t%d\n",
 				cirrus_bd->over_exc_count_right);
-	dev_info(cirrus_bd->dev, "Max Temp Right:\t\t\t%d.%d\n",
+	dev_info(cirrus_bd->dev, "Max Temp Right:\t\t\t%d.%04d\n",
 				cirrus_bd->max_temp_right >> CS35L41_BD_TEMP_RADIX,
 				(cirrus_bd->max_temp_right &
 				(((1 << CS35L41_BD_TEMP_RADIX) - 1))) *
@@ -150,6 +154,10 @@ void cirrus_bd_store_values_left(void)
 	regmap_read(cirrus_bd->regmap_left, CS35L41_BD_ABNORMAL_MUTE,
 			&abnm_mute_left);
 
+	if (max_temp_left > (99 * (1 << CS35L41_BD_TEMP_RADIX)) &&
+		over_temp_count_left == 0)
+		max_temp_left = (99 * (1 << CS35L41_BD_TEMP_RADIX));
+
 	cirrus_bd->over_temp_count_left += over_temp_count_left;
 	cirrus_bd->over_exc_count_left += over_exc_count_left;
 	if (max_exc_left > cirrus_bd->max_exc_left)
@@ -164,14 +172,14 @@ void cirrus_bd_store_values_left(void)
 	cirrus_bd->last_update = ktime_to_ns(ktime_get());
 
 	dev_info(cirrus_bd->dev, "Values stored:\n");
-	dev_info(cirrus_bd->dev, "Max Excursion Left:\t\t%d.%d\n",
+	dev_info(cirrus_bd->dev, "Max Excursion Left:\t\t%d.%04d\n",
 				cirrus_bd->max_exc_left >> CS35L41_BD_EXC_RADIX,
 				(cirrus_bd->max_exc_left &
 				(((1 << CS35L41_BD_EXC_RADIX) - 1))) *
 				10000 / (1 << CS35L41_BD_EXC_RADIX));
 	dev_info(cirrus_bd->dev, "Over Excursion Count Left:\t%d\n",
 				cirrus_bd->over_exc_count_left);
-	dev_info(cirrus_bd->dev, "Max Temp Left:\t\t\t%d.%d\n",
+	dev_info(cirrus_bd->dev, "Max Temp Left:\t\t\t%d.%04d\n",
 				cirrus_bd->max_temp_left >> CS35L41_BD_TEMP_RADIX,
 				(cirrus_bd->max_temp_left &
 				(((1 << CS35L41_BD_TEMP_RADIX) - 1))) *
@@ -212,7 +220,7 @@ static ssize_t cirrus_bd_max_exc_left_show(struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
 {
-	int ret = sprintf(buf, "%d.%d\n",
+	int ret = sprintf(buf, "%d.%04d\n",
 			cirrus_bd->max_exc_left >> CS35L41_BD_EXC_RADIX,
 			(cirrus_bd->max_exc_left &
 			(((1 << CS35L41_BD_EXC_RADIX) - 1))) *
@@ -250,7 +258,7 @@ static ssize_t cirrus_bd_max_temp_left_show(struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
 {
-	int ret = sprintf(buf, "%d.%d\n",
+	int ret = sprintf(buf, "%d.%04d\n",
 			cirrus_bd->max_temp_left >> CS35L41_BD_TEMP_RADIX,
 			(cirrus_bd->max_temp_left &
 			(((1 << CS35L41_BD_TEMP_RADIX) - 1))) *
@@ -306,7 +314,7 @@ static ssize_t cirrus_bd_max_exc_right_show(struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
 {
-	int ret = sprintf(buf, "%d.%d\n",
+	int ret = sprintf(buf, "%d.%04d\n",
 			cirrus_bd->max_exc_right >> CS35L41_BD_EXC_RADIX,
 			(cirrus_bd->max_exc_right &
 			(((1 << CS35L41_BD_EXC_RADIX) - 1))) *
@@ -344,7 +352,7 @@ static ssize_t cirrus_bd_max_temp_right_show(struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
 {
-	int ret = sprintf(buf, "%d.%d\n",
+	int ret = sprintf(buf, "%d.%04d\n",
 			cirrus_bd->max_temp_right >> CS35L41_BD_TEMP_RADIX,
 			(cirrus_bd->max_temp_right &
 			(((1 << CS35L41_BD_TEMP_RADIX) - 1))) *
@@ -399,7 +407,7 @@ static ssize_t cirrus_bd_max_temp_keep_left_show(struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
 {
-	int ret = sprintf(buf, "%d.%d\n",
+	int ret = sprintf(buf, "%d.%04d\n",
 			cirrus_bd->max_temp_keep_left >>
 					CS35L41_BD_TEMP_RADIX,
 			(cirrus_bd->max_temp_keep_left &
@@ -420,7 +428,7 @@ static ssize_t cirrus_bd_max_temp_keep_right_show(struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
 {
-	int ret = sprintf(buf, "%d.%d\n",
+	int ret = sprintf(buf, "%d.%04d\n",
 			cirrus_bd->max_temp_keep_right >>
 					CS35L41_BD_TEMP_RADIX,
 			(cirrus_bd->max_temp_keep_right &

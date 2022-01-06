@@ -98,6 +98,7 @@ int fimc_is_hw_mcsc_update_djag_register(struct fimc_is_hw_ip *hw_ip,
 		u32 instance)
 {
 	int ret = 0;
+	struct fimc_is_device_ischain *ischain;
 	struct fimc_is_hw_mcsc *hw_mcsc = NULL;
 	struct fimc_is_hw_mcsc_cap *cap = GET_MCSC_HW_CAP(hw_ip);
 	u32 in_width, in_height;
@@ -121,13 +122,13 @@ int fimc_is_hw_mcsc_update_djag_register(struct fimc_is_hw_ip *hw_ip,
 	if (cap->djag != MCSC_CAP_SUPPORT)
 		return ret;
 
+	ischain = hw_ip->group[instance]->device;
 	hw_mcsc = (struct fimc_is_hw_mcsc *)hw_ip->priv_info;
 
+	/* Decide DJAG input path based on the current streaming scenario. */
 	backup_in = hw_mcsc->djag_in;
-	if (hw_ip->hardware->video_mode)
-		hw_mcsc->djag_in = MCSC_DJAG_IN_VIDEO_MODE;
-	else
-		hw_mcsc->djag_in = MCSC_DJAG_IN_CAPTURE_MODE;
+	hw_mcsc->djag_in = hw_ip->id;
+	fimc_is_hw_djag_get_input(ischain, &hw_mcsc->djag_in);
 
 	/* The force means that sysfs control has higher priority than scenario. */
 	fimc_is_hw_mcsc_get_force_block_control(hw_ip, SUBBLK_IP_DJAG, cap->max_djag,
@@ -177,6 +178,8 @@ int fimc_is_hw_mcsc_update_djag_register(struct fimc_is_hw_ip *hw_ip,
 		}
 	}
 
+	fimc_is_hw_djag_adjust_out_size(ischain, in_width, in_height, &out_width, &out_height);
+
 	if (param->input.width > out_width || param->input.height > out_height) {
 		sdbg_hw(2, "DJAG is not applied still.(input : %dx%d > output : %dx%d)\n", hw_ip,
 				param->input.width, param->input.height,
@@ -220,9 +223,9 @@ int fimc_is_hw_mcsc_update_djag_register(struct fimc_is_hw_ip *hw_ip,
 	fimc_is_scaler_set_djag_round_mode(hw_ip->regs, 1);
 
 #ifdef MCSC_USE_DEJAG_TUNING_PARAM
-	djag_tuneset = &hw_mcsc->cur_setfile[sensor_position]->djag[scale_index];
+	djag_tuneset = &hw_mcsc->cur_setfile[sensor_position][instance]->djag[scale_index];
 #if defined(USE_UVSP_CAC)
-	djag_wb = &hw_mcsc->cur_setfile[sensor_position]->djag_wb[scale_index];
+	djag_wb = &hw_mcsc->cur_setfile[sensor_position][instance]->djag_wb[scale_index];
 #endif
 #endif
 	fimc_is_scaler_set_djag_tunning_param(hw_ip->regs, djag_tuneset);

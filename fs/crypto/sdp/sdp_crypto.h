@@ -86,8 +86,11 @@ typedef struct __gcm_pack {
 #define SDP_CRYPTO_NEK_DRV_LABEL "NONCE_ENC_KEY"
 #define SDP_CRYPTO_NEK_DRV_CONTEXT "NONCE_FOR_FEK"
 
+#define SDP_CRYPTO_SHA512_OUTPUT_SIZE 64
+
 /* Declarations for Open APIs*/
 int sdp_crypto_generate_key(void *raw_key, int nbytes);
+int sdp_crypto_hash_sha512(const u8 *data, u32 data_len, u8 *hashed);
 int sdp_crypto_aes_gcm_encrypt(struct crypto_aead *tfm,
 					u8 *data, size_t data_len, u8 *auth, u8 *iv);
 int sdp_crypto_aes_gcm_decrypt(struct crypto_aead *tfm,

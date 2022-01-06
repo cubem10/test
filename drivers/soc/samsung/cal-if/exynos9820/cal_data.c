@@ -248,8 +248,11 @@ int asv_ids_information(enum ids_info id)
 	case lg:
 		res = asv_get_grp(dvfs_cpucl0);
 		break;
-	case bg:
+	case mg:
 		res = asv_get_grp(dvfs_cpucl1);
+		break;
+	case bg:
+		res = asv_get_grp(dvfs_cpucl2);
 		break;
 	case g3dg:
 		res = asv_get_grp(dvfs_g3d);
@@ -257,8 +260,14 @@ int asv_ids_information(enum ids_info id)
 	case mifg:
 		res = asv_get_grp(dvfs_mif);
 		break;
-	case bids:
+	case lids:
+		res = asv_get_ids_info(dvfs_cpucl0);
+		break;
+	case mids:
 		res = asv_get_ids_info(dvfs_cpucl1);
+		break;
+	case bids:
+		res = asv_get_ids_info(dvfs_cpucl2);
 		break;
 	case gids:
 		res = asv_get_ids_info(dvfs_g3d);
@@ -378,6 +387,11 @@ static int asv_summary_show(struct seq_file *s, void *d)
 	for (i = 0; i < ASV_SUMMARY_SZ ; i++)
 		seq_printf(s, "%s: %d\n", label[i], asv_get_grp(dvfs_mif + i));
 
+	seq_printf(s, "IDS (b,m,l,g): %d, %d, %d, %d\n",
+			asv_get_ids_info(dvfs_cpucl2),
+			asv_get_ids_info(dvfs_cpucl1),
+			asv_get_ids_info(dvfs_cpucl0),
+			asv_get_ids_info(dvfs_g3d));
 	return 0;
 }
 

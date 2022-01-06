@@ -49,6 +49,10 @@
 /* sysfs variable for debug */
 extern struct fimc_is_sysfs_debug sysfs_debug;
 
+#ifdef CHAIN_SKIP_GFRAME_FOR_VRA
+static struct fimc_is_group_frame dummy_gframe;
+#endif
+
 static inline void smp_shot_init(struct fimc_is_group *group, u32 value)
 {
 	atomic_set(&group->smp_shot_count, value);
@@ -677,7 +681,7 @@ p_retry:
 }
 
 static void fimc_is_group_s_leader(struct fimc_is_group *group,
-	struct fimc_is_subdev *leader)
+	struct fimc_is_subdev *leader, bool force)
 {
 	struct fimc_is_subdev *subdev;
 
@@ -688,6 +692,11 @@ static void fimc_is_group_s_leader(struct fimc_is_group *group,
 	subdev->leader = leader;
 
 	list_for_each_entry(subdev, &group->subdev_list, list) {
+		/*
+		 * TODO: Remove this error check logic.
+		 * For MC-scaler group, this warning message could be printed
+		 * because each capture node is shared by different output node.
+		 */
 		if (leader->vctx && subdev->vctx &&
 			(leader->vctx->refcount < subdev->vctx->refcount)) {
 			mgwarn("Invalid subdev instance (%s(%u) < %s(%u))",
@@ -695,7 +704,9 @@ static void fimc_is_group_s_leader(struct fimc_is_group *group,
 				leader->name, leader->vctx->refcount,
 				subdev->name, subdev->vctx->refcount);
 		}
-		subdev->leader = leader;
+
+		if (force || test_bit(FIMC_IS_SUBDEV_OPEN, &subdev->state))
+			subdev->leader = leader;
 	}
 }
 
@@ -784,7 +795,7 @@ static void fimc_is_group_set_torch(struct fimc_is_group *group,
 
 	if (group->aeflashMode != ldr_frame->shot->ctl.aa.vendor_aeflashMode) {
 		group->aeflashMode = ldr_frame->shot->ctl.aa.vendor_aeflashMode;
-		fimc_is_vender_set_torch(group->aeflashMode);
+		fimc_is_vender_set_torch(ldr_frame->shot);
 	}
 
 	return;
@@ -828,7 +839,7 @@ static void fimc_is_groupmgr_votf_change_path(struct fimc_is_group *group,
 		child = group->child;
 		leader = &group->leader;
 		while (child) {
-			fimc_is_group_s_leader(child, leader);
+			fimc_is_group_s_leader(child, leader, false);
 			child = child->child;
 		}
 		break;
@@ -841,7 +852,7 @@ static void fimc_is_groupmgr_votf_change_path(struct fimc_is_group *group,
 		child = group->child;
 		leader = &vprev->leader;
 		while (child) {
-			fimc_is_group_s_leader(child, leader);
+			fimc_is_group_s_leader(child, leader, false);
 			child = child->child;
 		}
 
@@ -1155,7 +1166,8 @@ int fimc_is_groupmgr_init(struct fimc_is_groupmgr *groupmgr,
 		mdbgd_group("source vid : %02d\n", group, source_vid);
 		if (source_vid) {
 			leader = &group->leader;
-			fimc_is_group_s_leader(group, leader);
+			/* Set force flag to initialize every leader in subdev. */
+			fimc_is_group_s_leader(group, leader, true);
 
 			if (prev) {
 				group->prev = prev;
@@ -1382,7 +1394,7 @@ int fimc_is_groupmgr_init(struct fimc_is_groupmgr *groupmgr,
 			sibling->tail = next;
 			next->head = sibling;
 			leader = &sibling->leader;
-			fimc_is_group_s_leader(next, leader);
+			fimc_is_group_s_leader(next, leader, false);
 		} else if (test_bit(FIMC_IS_GROUP_VIRTUAL_OTF_INPUT, &next->state)) {
 			group->vnext = next;
 			next->vprev = group;
@@ -1403,8 +1415,21 @@ int fimc_is_groupmgr_init(struct fimc_is_groupmgr *groupmgr,
 			fimc_is_pipe_create(&device->pipe, next->gprev, next);
 #endif
 		} else {
-			sibling->gnext = next;
-			next->gprev = sibling;
+#ifdef CHAIN_SKIP_GFRAME_FOR_VRA
+			/**
+			 * HACK: Put VRA group as a isolated group.
+			 * There is some case that user skips queueing VRA buffer,
+			 * even though DMA out request of junction node is set.
+			 * To prevent the gframe stuck issue,
+			 * VRA group must not receive gframe from previous group.
+			 */
+			if (next->id != GROUP_ID_VRA0)
+#endif
+			{
+				sibling->gnext = next;
+				next->gprev = sibling;
+			}
+
 			sibling = next;
 		}
 
@@ -2299,6 +2324,17 @@ int fimc_is_group_stop(struct fimc_is_groupmgr *groupmgr,
 	if (!retry) {
 		mgerr(" waiting(until request empty) is fail(pc %d)", device, group, group->pcount);
 		errcnt++;
+
+		/*
+		 * Extinctionize pending works in worker to avoid the work_list corruption.
+		 * When user calls 'vb2_stop_streaming()' that calls 'group_stop()',
+		 * 'v4l2_reqbufs()' can be called for another stream
+		 * and it means every work in frame is going to be initialized.
+		 */
+		spin_lock_irqsave(&gtask->worker.lock, flags);
+		INIT_LIST_HEAD(&gtask->worker.work_list);
+		INIT_LIST_HEAD(&gtask->worker.delayed_work_list);
+		spin_unlock_irqrestore(&gtask->worker.lock, flags);
 	}
 
 	/* ensure that request cancel work is complete fully */
@@ -2518,7 +2554,9 @@ int fimc_is_group_buffer_queue(struct fimc_is_groupmgr *groupmgr,
 
 #ifdef SENSOR_REQUEST_DELAY
 		if (test_bit(FIMC_IS_GROUP_OTF_INPUT, &group->state) &&
-			(frame->shot->uctl.opMode == CAMERA_OP_MODE_HAL3_GED)) {
+			(frame->shot->uctl.opMode == CAMERA_OP_MODE_HAL3_GED
+			 || frame->shot->uctl.opMode == CAMERA_OP_MODE_HAL3_SDK
+			 || frame->shot->uctl.opMode == CAMERA_OP_MODE_HAL3_CAMERAX)) {
 			int req_cnt = 0;
 			struct fimc_is_frame *prev;
 			list_for_each_entry_reverse(prev, &framemgr->queued_list[FS_REQUEST], list) {
@@ -2548,6 +2586,7 @@ int fimc_is_group_buffer_queue(struct fimc_is_groupmgr *groupmgr,
 			}
 		}
 #endif
+
 		trans_frame(framemgr, frame, FS_REQUEST);
 	} else {
 		err("frame(%d) is invalid state(%d)\n", index, frame->state);
@@ -2762,41 +2801,61 @@ static int fimc_is_group_check_pre(struct fimc_is_groupmgr *groupmgr,
 		fimc_is_gframe_s_info(gframe, group->slot, frame);
 		fimc_is_gframe_check(gprev, group, gnext, gframe, frame);
 	} else {
-		/* single */
-		if (atomic_read(&group->scount))
-			group->fcount += frame->num_buffers;
-		else
-			group->fcount++;
+#ifdef CHAIN_SKIP_GFRAME_FOR_VRA
+		if (group->id == GROUP_ID_VRA0) {
+			/* VRA: Skip gframe logic. */
+			struct fimc_is_crop *incrop
+				= (struct fimc_is_crop *)frame->shot_ext->node_group.leader.input.cropRegion;
+			struct fimc_is_subdev *subdev = &group->leader;
 
-		fimc_is_gframe_free_head(gframemgr, &gframe);
-		if (unlikely(!gframe)) {
-			mgerr("gframe is NULL4", device, group);
-			fimc_is_gframe_print_free(gframemgr);
-			fimc_is_gframe_print_group(group_leader);
-			spin_unlock_irqrestore(&gframemgr->gframe_slock, flags);
-			fimc_is_stream_status(groupmgr, group_leader);
-			ret = -EINVAL;
-			goto p_err;
-		}
+			if ((incrop->w * incrop->h) > (subdev->input.width * subdev->input.height)) {
+				mrwarn("the input size is invalid(%dx%d > %dx%d)", group, frame,
+						incrop->w, incrop->h,
+						subdev->input.width, subdev->input.height);
+				incrop->w = subdev->input.width;
+				incrop->h = subdev->input.height;
+			}
 
-		if (unlikely(!test_bit(FIMC_IS_ISCHAIN_REPROCESSING, &device->state) &&
-			(frame->fcount != group->fcount))) {
-			if (frame->fcount > group->fcount) {
-				mgwarn("shot mismatch(%d != %d)", device, group,
-					frame->fcount, group->fcount);
-				group->fcount = frame->fcount;
-			} else {
+			gframe = &dummy_gframe;
+		} else
+#endif
+		{
+			/* single */
+			if (atomic_read(&group->scount))
+				group->fcount += frame->num_buffers;
+			else
+				group->fcount++;
+
+			fimc_is_gframe_free_head(gframemgr, &gframe);
+			if (unlikely(!gframe)) {
+				mgerr("gframe is NULL4", device, group);
+				fimc_is_gframe_print_free(gframemgr);
+				fimc_is_gframe_print_group(group_leader);
 				spin_unlock_irqrestore(&gframemgr->gframe_slock, flags);
-				mgerr("shot mismatch(%d, %d)", device, group,
-					frame->fcount, group->fcount);
-				group->fcount -= frame->num_buffers;
+				fimc_is_stream_status(groupmgr, group_leader);
 				ret = -EINVAL;
 				goto p_err;
 			}
-		}
 
-		fimc_is_gframe_s_info(gframe, group->slot, frame);
-		fimc_is_gframe_check(gprev, group, gnext, gframe, frame);
+			if (unlikely(!test_bit(FIMC_IS_ISCHAIN_REPROCESSING, &device->state) &&
+						(frame->fcount != group->fcount))) {
+				if (frame->fcount > group->fcount) {
+					mgwarn("shot mismatch(%d != %d)", device, group,
+							frame->fcount, group->fcount);
+					group->fcount = frame->fcount;
+				} else {
+					spin_unlock_irqrestore(&gframemgr->gframe_slock, flags);
+					mgerr("shot mismatch(%d, %d)", device, group,
+							frame->fcount, group->fcount);
+					group->fcount -= frame->num_buffers;
+					ret = -EINVAL;
+					goto p_err;
+				}
+			}
+
+			fimc_is_gframe_s_info(gframe, group->slot, frame);
+			fimc_is_gframe_check(gprev, group, gnext, gframe, frame);
+		}
 	}
 
 	*result = gframe;
@@ -2875,8 +2934,12 @@ static int fimc_is_group_check_post(struct fimc_is_groupmgr *groupmgr,
 			}
 		}
 	} else {
-		/* single */
-		gframe->fcount = frame->fcount;
+#ifdef CHAIN_SKIP_GFRAME_FOR_VRA
+		/* VRA: Skip gframe logic. */
+		if (group->id != GROUP_ID_VRA0)
+#endif
+			/* single */
+			gframe->fcount = frame->fcount;
 	}
 
 	spin_unlock_irqrestore(&gframemgr->gframe_slock, flags);

@@ -102,6 +102,11 @@ int npu_memory_map(struct npu_memory *memory, struct npu_memory_buffer *buffer)
 	INIT_LIST_HEAD(&buffer->list);
 
 	buffer->dma_buf = dma_buf_get(buffer->fd);
+	if (IS_ERR_OR_NULL(buffer->dma_buf)) {
+		npu_err("dma_buf_get is fail(0x%08x)\n", buffer->dma_buf);
+		ret = -EINVAL;
+		goto p_err;
+	}
 
 	attachment = dma_buf_attach(buffer->dma_buf, memory->dev);
 	if (IS_ERR(attachment)) {
@@ -127,7 +132,7 @@ int npu_memory_map(struct npu_memory *memory, struct npu_memory_buffer *buffer)
 
 	vaddr = dma_buf_vmap(buffer->dma_buf);
 	if (IS_ERR(vaddr)) {
-		npu_err("Failed to get vaddr (err %p)\n", vaddr);
+		npu_err("Failed to get vaddr (err %pK)\n", vaddr);
 		ret = -EFAULT;
 		goto p_err;
 	}
@@ -155,18 +160,18 @@ int npu_memory_unmap(struct npu_memory *memory, struct npu_memory_buffer *buffer
 	BUG_ON(!buffer);
 
 	npu_info("Try unmapping DMABUF fd=%d size=%zu\n", buffer->fd, buffer->size);
-	npu_trace("buffer[%p], vaddr[%p], daddr[%llx], sgt[%p], attachment[%p]\n",
+	npu_trace("buffer[%pK], vaddr[%pK], daddr[%llx], sgt[%pK], attachment[%pK]\n",
 			buffer, buffer->vaddr, buffer->daddr, buffer->sgt, buffer->attachment);
 
-	if (buffer->vaddr)
+	if (!IS_ERR_OR_NULL(buffer->vaddr))
 		dma_buf_vunmap(buffer->dma_buf, buffer->vaddr);
-	if (buffer->daddr)
+	if (buffer->daddr && !IS_ERR_VALUE(buffer->daddr))
 		ion_iovmm_unmap(buffer->attachment, buffer->daddr);
-	if (buffer->sgt)
+	if (!IS_ERR_OR_NULL(buffer->sgt))
 		dma_buf_unmap_attachment(buffer->attachment, buffer->sgt, DMA_BIDIRECTIONAL);
-	if (buffer->attachment)
+	if (!IS_ERR_OR_NULL(buffer->attachment) && !IS_ERR_OR_NULL(buffer->dma_buf))
 		dma_buf_detach(buffer->dma_buf, buffer->attachment);
-	if (buffer->dma_buf)
+	if (!IS_ERR_OR_NULL(buffer->dma_buf))
 		dma_buf_put(buffer->dma_buf);
 
 	buffer->attachment = NULL;
@@ -180,7 +185,7 @@ int npu_memory_unmap(struct npu_memory *memory, struct npu_memory_buffer *buffer
 		INIT_LIST_HEAD(&buffer->list);
 		memory->map_count--;
 	} else
-		npu_info("buffer[%p] is not linked to map_lock. Skipping remove.\n", buffer);
+		npu_info("buffer[%pK] is not linked to map_lock. Skipping remove.\n", buffer);
 
 	spin_unlock_irqrestore(&memory->map_lock, flags);
 
@@ -226,7 +231,7 @@ int npu_memory_alloc(struct npu_memory *memory, struct npu_memory_buffer *buffer
 
 	dma_buf = ion_alloc_dmabuf(heapname, size, flag);
 	if (IS_ERR_OR_NULL(dma_buf)) {
-		npu_err("dma_buf_get is fail(%p)\n", dma_buf);
+		npu_err("ion_alloc_dmabuf is fail(0x%08x)\n", dma_buf);
 		ret = -EINVAL;
 		goto p_err;
 	}
@@ -258,7 +263,7 @@ int npu_memory_alloc(struct npu_memory *memory, struct npu_memory_buffer *buffer
 
 	vaddr = dma_buf_vmap(dma_buf);
 	if (IS_ERR(vaddr)) {
-		npu_err("fail(err %p) in dma_buf_vmap\n", vaddr);
+		npu_err("fail(err %pK) in dma_buf_vmap\n", vaddr);
 		ret = -EFAULT;
 		goto p_err;
 	}
@@ -271,7 +276,7 @@ int npu_memory_alloc(struct npu_memory *memory, struct npu_memory_buffer *buffer
 	memory->alloc_count++;
 	spin_unlock_irqrestore(&memory->alloc_lock, flags);
 
-	npu_trace("buffer[%p], vaddr[%p], daddr[%llx], sgt[%p], attachment[%p]\n",
+	npu_trace("buffer[%pK], vaddr[%pK], daddr[%llx], sgt[%pK], attachment[%pK]\n",
 		buffer, buffer->vaddr, buffer->daddr, buffer->sgt, buffer->attachment);
 p_err:
 	if (complete_suc != true) {
@@ -291,24 +296,19 @@ int npu_memory_free(struct npu_memory *memory, struct npu_memory_buffer *buffer)
 
 	mem_ops = memory->vb2_mem_ops;
 
-	npu_trace("buffer[%p], vaddr[%p], daddr[%llx], sgt[%p], attachment[%p]\n",
+	npu_trace("buffer[%pK], vaddr[%pK], daddr[%llx], sgt[%pK], attachment[%pK]\n",
 		buffer, buffer->vaddr, buffer->daddr, buffer->sgt, buffer->attachment);
 
-	if (buffer->vaddr) {
+	if (!IS_ERR_OR_NULL(buffer->vaddr))
 		dma_buf_vunmap(buffer->dma_buf, buffer->vaddr);
-	}
-	if (buffer->daddr) {
+	if (buffer->daddr && !IS_ERR_VALUE(buffer->daddr))
 		ion_iovmm_unmap(buffer->attachment, buffer->daddr);
-	}
-	if (buffer->sgt) {
+	if (!IS_ERR_OR_NULL(buffer->sgt))
 		dma_buf_unmap_attachment(buffer->attachment, buffer->sgt, DMA_BIDIRECTIONAL);
-	}
-	if (buffer->attachment) {
+	if (!IS_ERR_OR_NULL(buffer->attachment) && !IS_ERR_OR_NULL(buffer->dma_buf))
 		dma_buf_detach(buffer->dma_buf, buffer->attachment);
-	}
-	if (buffer->dma_buf) {
+	if (!IS_ERR_OR_NULL(buffer->dma_buf))
 		dma_buf_put(buffer->dma_buf);
-	}
 
 	buffer->dma_buf = NULL;
 	buffer->attachment = NULL;
@@ -322,7 +322,7 @@ int npu_memory_free(struct npu_memory *memory, struct npu_memory_buffer *buffer)
 		INIT_LIST_HEAD(&buffer->list);
 		memory->alloc_count--;
 	} else
-		npu_info("buffer[%p] is not linked to alloc_lock. Skipping remove.\n", buffer);
+		npu_info("buffer[%pK] is not linked to alloc_lock. Skipping remove.\n", buffer);
 
 	spin_unlock_irqrestore(&memory->alloc_lock, flags);
 

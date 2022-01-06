@@ -20,7 +20,7 @@ struct npu_qos_setting {
 	struct mutex		npu_qos_lock;
 	struct platform_device	*dvfs_npu_dev;
 
-	struct pm_qos_request 	npu_qos_req_npu;
+	struct pm_qos_request	npu_qos_req_npu;
 	struct pm_qos_request	npu_qos_req_mif;
 	struct pm_qos_request	npu_qos_req_int;
 	struct pm_qos_request	npu_qos_req_cpu_cl0;
@@ -51,6 +51,7 @@ int npu_qos_probe(struct npu_system *system);
 int npu_qos_release(struct npu_system *system);
 int npu_qos_start(struct npu_system *system);
 int npu_qos_stop(struct npu_system *system);
-npu_s_param_ret npu_qos_param_handler(struct npu_session *sess, struct vs4l_param *param, int *retval);
+npu_s_param_ret npu_qos_param_handler(struct npu_session *sess,
+	struct vs4l_param *param, int *retval);
 
 #endif	/* _NPU_QOS_H_ */

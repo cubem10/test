@@ -155,7 +155,7 @@ inline int __dek_aes_encrypt_key_raw(unsigned char *kek, unsigned int kek_len,
 {
 	int rc;
 	int type;
-	int ekey_len;
+	int ekey_len = 0;
 	struct crypto_aead *tfm;
 
 	tfm = sdp_crypto_aes_gcm_key_setup(kek, kek_len);
@@ -268,7 +268,7 @@ inline int __dek_aes_decrypt_key_raw(unsigned char  *kek, unsigned int kek_len,
 {
 	int rc;
 	int type;
-	int key_len;
+	int key_len = 0;
 	struct crypto_aead *tfm;
 
 	tfm = sdp_crypto_aes_gcm_key_setup(kek, kek_len);

@@ -267,6 +267,7 @@ enum max77705_irq_source {
 	CC_INT,
 	PD_INT,
 	VDM_INT,
+	VIR_INT,
 	MAX77705_IRQ_GROUP_NR,
 };
 
@@ -333,6 +334,9 @@ enum max77705_irq {
 	MAX77705_IRQ_VDM_DP_CONFIGURE_INT,
 	MAX77705_IRQ_VDM_ATTENTION_INT,
 
+	/* VIRTUAL */
+	MAX77705_VIR_IRQ_ALTERROR_INT,
+
 	MAX77705_IRQ_NR,
 };
 
@@ -381,6 +385,8 @@ struct max77705_dev {
 
 	u8 cc_booting_complete;
 
+	int set_altmode;
+
 	struct max77705_platform_data *pdata;
 };
 
@@ -410,5 +416,6 @@ extern bool is_muic_usb_path_cp_usb(void);
 /* for charger api */
 extern void max77705_hv_muic_charger_init(void);
 extern int max77705_usbc_fw_update(struct max77705_dev *max77705, const u8 *fw_bin, int fw_bin_len, int enforce_do);
+extern void max77705_usbc_fw_setting(struct max77705_dev *max77705, int enforce_do);
 #endif /* __LINUX_MFD_MAX77705_PRIV_H */
 

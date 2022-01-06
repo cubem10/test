@@ -36,7 +36,6 @@
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
-#include <linux/cma.h>
 #include <linux/oom.h>
 #include <linux/sched/signal.h>
 #include <linux/swap.h>
@@ -65,6 +64,7 @@ static int lowmem_minfree[6] = {
 
 static int lowmem_minfree_size = 4;
 static u32 lowmem_lmkcount;
+static int lmkd_cricount;
 
 static unsigned long lowmem_deathpending_timeout;
 
@@ -76,14 +76,6 @@ static unsigned long lowmem_deathpending_timeout;
 
 static void show_memory(void)
 {
-	unsigned long nr_rbin_free, nr_rbin_pool, nr_rbin_alloc, nr_rbin_file;
-
-	nr_rbin_free = global_zone_page_state(NR_FREE_RBIN_PAGES);
-	nr_rbin_pool = atomic_read(&rbin_pool_pages);
-	nr_rbin_alloc = atomic_read(&rbin_allocated_pages);
-	nr_rbin_file = totalrbin_pages - nr_rbin_free - nr_rbin_pool
-					- nr_rbin_alloc;
-
 #define K(x) ((x) << (PAGE_SHIFT - 10))
 	printk("Mem-Info:"
 		" totalram_pages:%lukB"
@@ -104,10 +96,6 @@ static void show_memory(void)
 		" kernel_stack:%lukB"
 		" pagetables:%lukB"
 		" free_cma:%lukB"
-		" rbin_free:%lukB"
-		" rbin_pool:%lukB"
-		" rbin_alloc:%lukB"
-		" rbin_file:%lukB"
 		"\n",
 		K(totalram_pages),
 		K(global_zone_page_state(NR_FREE_PAGES)),
@@ -126,11 +114,7 @@ static void show_memory(void)
 		K(global_node_page_state(NR_SLAB_UNRECLAIMABLE)),
 		global_zone_page_state(NR_KERNEL_STACK_KB),
 		K(global_zone_page_state(NR_PAGETABLE)),
-		K(global_zone_page_state(NR_FREE_CMA_PAGES)),
-		K(nr_rbin_free),
-		K(nr_rbin_pool),
-		K(nr_rbin_alloc),
-		K(nr_rbin_file)
+		K(global_zone_page_state(NR_FREE_CMA_PAGES))
 		);
 #undef K
 }
@@ -160,8 +144,9 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 	int other_file = global_node_page_state(NR_FILE_PAGES) -
 				global_node_page_state(NR_SHMEM) -
 				total_swapcache_pages();
-	unsigned long nr_rbin_free, nr_rbin_pool, nr_rbin_alloc, nr_rbin_file;
 	static DEFINE_RATELIMIT_STATE(lmk_rs, DEFAULT_RATELIMIT_INTERVAL, 1);
+	unsigned long nr_cma_free;
+	int migratetype;
 #if defined(CONFIG_SWAP)
 	unsigned long swap_orig_nrpages;
 	unsigned long swap_comp_nrpages;
@@ -171,16 +156,12 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 	swap_orig_nrpages = get_swap_orig_data_nrpages();
 	swap_comp_nrpages = get_swap_comp_pool_nrpages();
 #endif
+	nr_cma_free = global_zone_page_state(NR_FREE_CMA_PAGES);
+	migratetype = gfpflags_to_migratetype(sc->gfp_mask);
+	if (!((migratetype == MIGRATE_MOVABLE) &&
+		((sc->gfp_mask & GFP_HIGHUSER_MOVABLE) == GFP_HIGHUSER_MOVABLE)))
+		other_free -= nr_cma_free;
 
-	if ((sc->gfp_mask & __GFP_RBIN) != __GFP_RBIN) {
-		nr_rbin_free = global_zone_page_state(NR_FREE_RBIN_PAGES);
-		nr_rbin_pool = atomic_read(&rbin_pool_pages);
-		nr_rbin_alloc = atomic_read(&rbin_allocated_pages);
-		nr_rbin_file = totalrbin_pages - nr_rbin_free - nr_rbin_pool
-						- nr_rbin_alloc;
-		other_free -= nr_rbin_free;
-		other_file -= nr_rbin_file;
-	}
 	if (lowmem_adj_size < array_size)
 		array_size = lowmem_adj_size;
 	if (lowmem_minfree_size < array_size)
@@ -341,3 +322,4 @@ module_param_array_named(minfree, lowmem_minfree, uint, &lowmem_minfree_size,
 module_param_named(debug_level, lowmem_debug_level, uint, 0644);
 module_param_named(lmkcount, lowmem_lmkcount, uint, 0444);
 module_param_named(lmkd_count, lmkd_count, int, 0644);
+module_param_named(lmkd_cricount, lmkd_cricount, int, 0644);

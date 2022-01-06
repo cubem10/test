@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_pcie.h 796722 2018-12-26 12:41:31Z $
+ * $Id: dhd_pcie.h 804258 2019-02-12 12:08:12Z $
  */
 
 #ifndef dhd_pcie_h
@@ -413,6 +413,7 @@ typedef struct dhd_bus {
 	uint8  dma_chan;
 	bool	cto_enable;	/* enable PCIE CTO Prevention and recovery */
 	uint32  cto_threshold;  /* PCIE CTO timeout threshold */
+	bool	cto_triggered;	/* CTO is triggered */
 	int	pwr_req_ref;
 	bool flr_force_fail; /* user intends to simulate flr force fail */
 	bool intr_enabled; /* ready to receive interrupts from dongle */
@@ -472,6 +473,9 @@ extern uint8 dhdpcie_clkreq(osl_t *osh, uint32 mask, uint32 val);
 extern int dhdpcie_disable_irq(dhd_bus_t *bus);
 extern int dhdpcie_disable_irq_nosync(dhd_bus_t *bus);
 extern int dhdpcie_enable_irq(dhd_bus_t *bus);
+
+extern void dhd_bus_dump_dar_registers(struct dhd_bus *bus);
+
 extern uint32 dhdpcie_rc_config_read(dhd_bus_t *bus, uint offset);
 extern uint32 dhdpcie_rc_access_cap(dhd_bus_t *bus, int cap, uint offset, bool is_ext,
 		bool is_write, uint32 writeval);

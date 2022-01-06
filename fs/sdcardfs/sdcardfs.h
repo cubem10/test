@@ -46,7 +46,6 @@
 #include <linux/string.h>
 #include <linux/list.h>
 #include <linux/ratelimit.h>
-#include <linux/android_aid.h>
 #include "multiuser.h"
 
 /* the file system name */
@@ -551,10 +550,14 @@ struct limit_search {
 extern void setup_derived_state(struct inode *inode, perm_t perm,
 			userid_t userid, uid_t uid);
 extern void get_derived_permission(struct dentry *parent, struct dentry *dentry);
-extern void get_derived_permission_new(struct dentry *parent, struct dentry *dentry, const struct qstr *name);
+extern void get_derived_permission_new(struct dentry *parent,
+		struct dentry *dentry, const struct qstr *name);
+extern void get_derived_permission_inode_new(struct dentry *parent,
+		struct inode *inode, const struct qstr *name);
 extern void fixup_perms_recursive(struct dentry *dentry, struct limit_search *limit);
 
-extern void update_derived_permission_lock(struct dentry *dentry);
+extern void update_derived_permission_lock(struct dentry *dentry,
+		struct inode *inode);
 void fixup_lower_ownership(struct dentry *dentry, const char *name);
 extern int need_graft_path(struct dentry *dentry);
 extern int is_base_obbpath(struct dentry *dentry);
@@ -629,7 +632,7 @@ static inline int check_min_free_space(struct dentry *dentry, size_t size, int d
 
 	if (uid_eq(GLOBAL_ROOT_UID, current_fsuid()) ||
 			capable(CAP_SYS_RESOURCE) ||
-			in_group_p(AID_RESERVED_DISK))
+			in_group_p(AID_USE_ROOT_RESERVED))
 		return 1;
 
 	if (sbi->options.reserved_mb) {
@@ -716,11 +719,6 @@ static inline bool str_n_case_eq(const char *s1, const char *s2, size_t len)
 static inline bool qstr_case_eq(const struct qstr *q1, const struct qstr *q2)
 {
 	return q1->len == q2->len && str_n_case_eq(q1->name, q2->name, q2->len);
-}
-
-static inline bool qstr_n_case_eq(const struct qstr *q1, const struct qstr *q2)
-{
-	return q1->len == q2->len && str_n_case_eq(q1->name, q2->name, q1->len);
 }
 
 #define QSTR_LITERAL(string) QSTR_INIT(string, sizeof(string)-1)

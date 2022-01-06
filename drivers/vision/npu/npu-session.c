@@ -13,6 +13,7 @@
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/wait.h>
+#include <linux/sched.h>
 //#include "lib/vpul-ds.h"
 #include "npu-log.h"
 #include "npu-common.h"
@@ -20,6 +21,11 @@
 #include "npu-log.h"
 
 #include <asm/cacheflush.h>
+
+#ifdef NPU_LOG_TAG
+#undef NPU_LOG_TAG
+#endif
+#define NPU_LOG_TAG             "npu-sess"
 
 //#define SYSMMU_FAULT_TEST
 
@@ -42,7 +48,7 @@ struct addr_info *find_addr_info(struct npu_session *session, u32 av_index, mem_
 		addr_info = session->IMB_info;
 		break;
 	default:
-		npu_err("Invalid mem_type : %d\n", mem_type);
+		npu_uerr("Invalid mem_type : %d\n", session, mem_type);
 		ret = NULL;
 		goto err_exit;
 	}
@@ -52,7 +58,6 @@ struct addr_info *find_addr_info(struct npu_session *session, u32 av_index, mem_
 			break;
 		}
 	}
-
 err_exit:
 	return ret;
 }
@@ -76,6 +81,14 @@ void npu_session_queue_done(struct npu_queue *queue, struct vb_container_list *i
 	return;
 }
 
+static save_result_func get_notify_func(const nw_cmd_e nw_cmd)
+{
+	if (NPU_NW_CMD_UNLOAD == nw_cmd || NPU_NW_CMD_CLEAR_CB == nw_cmd)
+		return NULL;
+	else
+		return npu_session_save_result;
+}
+
 static int npu_session_put_nw_req(struct npu_session *session, nw_cmd_e nw_cmd)
 {
 	int ret = 0;
@@ -91,10 +104,7 @@ static int npu_session_put_nw_req(struct npu_session *session, nw_cmd_e nw_cmd)
 
 	BUG_ON(!session);
 
-	if (NPU_NW_CMD_UNLOAD == nw_cmd)
-		req.notify_func = NULL;
-	else
-		req.notify_func = npu_session_save_result;
+	req.notify_func = get_notify_func(nw_cmd);
 
 	ret = npu_ncp_mgmt_put(&req);
 	if (!ret) {
@@ -122,7 +132,7 @@ int npu_session_put_frame_req(
 		.input = incl,
 		.output = otcl,
 		.magic_tail = NPU_FRAME_MAGIC_TAIL,
-		.mbox_process_dat = &session->mbox_process_dat,
+		.mbox_process_dat = session->mbox_process_dat,
 		.IFM_info = IFM_info,
 		.OFM_info = OFM_info,
 	};
@@ -205,7 +215,7 @@ int __release_graph_ion(struct npu_session *session)
 	return ret;
 }
 
-int npu_session_close(struct npu_session *session)
+int npu_session_NW_CMD_UNLOAD(struct npu_session *session)
 {
 	int ret = 0;
 
@@ -213,83 +223,60 @@ int npu_session_close(struct npu_session *session)
 	struct npu_vertex_ctx *vctx;
 	struct npu_vertex *vertex;
 	struct npu_device *device;
+	nw_cmd_e nw_cmd = NPU_NW_CMD_UNLOAD;
 
 	vctx = &(session->vctx);
 	vertex = vctx->vertex;
 	device = container_of(vertex, struct npu_device, vertex);
 
-	if (!npu_device_is_emergency_err(device)) {
-		nw_cmd_e nw_cmd = NPU_NW_CMD_UNLOAD;
-		/* Post unload command */
-		npu_dbg("sending UNLOAD command.\n");
-		session->nw_result.result_code = NPU_NW_JUST_STARTED;
-		npu_session_put_nw_req(session, nw_cmd);
-	} else {
-		npu_dbg("%s(): NPU DEVICE IS EMERGENCY ERROR\n", __func__);
-	}
+	if (npu_device_is_emergency_err(device))
+		npu_udbg("NPU DEVICE IS EMERGENCY ERROR\n", session);
+
+	/* Post unload command */
+	npu_udbg("sending UNLOAD command.\n", session);
+	session->nw_result.result_code = NPU_NW_JUST_STARTED;
+	npu_session_put_nw_req(session, nw_cmd);
 
 	return ret;
 }
 
-int npu_session_release_graph(struct npu_session *session)
+int npu_session_close(struct npu_session *session)
 {
 	int ret = 0;
-	struct addr_info *addr_info;
-	int i = 0;
 
-	__release_graph_ion(session);
+	BUG_ON(!session);
 
-	addr_info = session->IMB_info;
-	kfree(addr_info);
-	session->IMB_info = NULL;
+	session->ss_state |= BIT(NPU_SESSION_STATE_CLOSE);
 
-	addr_info = session->WGT_info;
-	kfree(addr_info);
-	session->WGT_info = NULL;
+	npu_session_undo_close(session);
+	npu_session_undo_open(session);
 
-	for (i = 0; i < VISION_MAX_BUFFER; i++) {
-		addr_info = session->IFM_info[i].addr_info;
-		kfree(addr_info);
-		session->IFM_info[i].addr_info = NULL;
-
-		addr_info = session->OFM_info[i].addr_info;
-		kfree(addr_info);
-		session->OFM_info[i].addr_info = NULL;
-	}
 	return ret;
 }
 
-int npu_session_destroy(struct npu_session *session, u32 state)
-{
-	int ret = 0;
-	/* destroy procedures */
-	if (state & BIT(NPU_VERTEX_GRAPH)) {
-		npu_session_release_graph(session);
-	}
-	npu_sessionmgr_unregID(session->cookie, session);
-	kfree(session);
-	session = NULL;
-	return ret;
-}
-
-int npu_session_create(struct npu_session **session, void *cookie, void *memory)
+int npu_session_open(struct npu_session **session, void *cookie, void *memory)
 {
 	int ret = 0;
 	int i = 0;
 
 	*session = kzalloc(sizeof(struct npu_session), GFP_KERNEL);
 	if (*session == NULL) {
-		npu_err("fail in kzalloc");
+		npu_err("fail in npu_session_open kzalloc\n");
 		ret = -ENOMEM;
-		goto p_err;
+		return ret;
 	}
+
+	(*session)->ss_state |= BIT(NPU_SESSION_STATE_OPEN);
 
 	ret = npu_sessionmgr_regID(cookie, *session);
 	if (ret) {
 		npu_err("fail(%d) in npu_sessionmgr_regID\n", ret);
-		kfree(*session);
+		npu_session_register_undo_cb(*session, npu_session_undo_open);
 		goto p_err;
 	}
+
+	(*session)->ss_state |= BIT(NPU_SESSION_STATE_REGISTER);
+
 	init_waitqueue_head(&((*session)->wq));
 
 	(*session)->cookie = cookie;
@@ -310,6 +297,168 @@ int npu_session_create(struct npu_session **session, void *cookie, void *memory)
 
 	(*session)->qbuf_IOFM_idx = -1;
 	(*session)->dqbuf_IOFM_idx = -1;
+
+	(*session)->pid	= task_pid_nr(current);
+
+	return ret;
+p_err:
+	npu_session_execute_undo_cb(*session);
+	return ret;
+}
+
+int _undo_s_graph_each_state(struct npu_session *session)
+{
+	int ret = 0;
+	u32 i = 0;
+	u32 IMB_cnt;
+	struct npu_memory *memory;
+	struct npu_memory_buffer *ion_mem_buf;
+	struct addr_info *addr_info;
+
+	BUG_ON(!session);
+
+	memory = session->memory;
+	IMB_cnt = session->IMB_cnt;
+
+	if (session->ss_state <= BIT(NPU_SESSION_STATE_GRAPH_ION_MAP))
+		goto graph_ion_unmap;
+	if (session->ss_state <= BIT(NPU_SESSION_STATE_WGT_KALLOC))
+		goto wgt_kfree;
+	if (session->ss_state <= BIT(NPU_SESSION_STATE_IOFM_KALLOC))
+		goto iofm_kfree;
+	if (session->ss_state <= BIT(NPU_SESSION_STATE_IOFM_ION_ALLOC))
+		goto iofm_ion_unmap;
+	if (session->ss_state <= BIT(NPU_SESSION_STATE_IMB_ION_ALLOC))
+		goto imb_ion_unmap;
+
+imb_ion_unmap:
+	addr_info = session->IMB_info;
+	kfree(addr_info);
+	session->IMB_info = NULL;
+
+	ion_mem_buf = session->IMB_mem_buf;
+	session->IMB_mem_buf = NULL;
+	if (ion_mem_buf) {
+		for (i = 0; i < IMB_cnt; i++) {
+			npu_memory_free(memory, ion_mem_buf + i);
+		}
+		kfree(ion_mem_buf);
+	}
+
+iofm_ion_unmap:
+	ion_mem_buf = session->IOFM_mem_buf;
+	session->IOFM_mem_buf = NULL;
+	if (ion_mem_buf) {
+		for (i = 0; i < VISION_MAX_BUFFER; i++) {
+			npu_memory_free(memory, ion_mem_buf + i);
+		}
+		kfree(ion_mem_buf);
+	}
+
+iofm_kfree:
+	for (i = 0; i < VISION_MAX_BUFFER; i++) {
+		addr_info = session->IFM_info[i].addr_info;
+		kfree(addr_info);
+		session->IFM_info[i].addr_info = NULL;
+
+		addr_info = session->OFM_info[i].addr_info;
+		kfree(addr_info);
+		session->OFM_info[i].addr_info = NULL;
+	}
+
+wgt_kfree:
+	addr_info = session->WGT_info;
+	kfree(addr_info);
+	session->WGT_info = NULL;
+
+graph_ion_unmap:
+	ion_mem_buf = session->ncp_mem_buf;
+	session->ncp_mem_buf = NULL;
+	if (ion_mem_buf) {
+		npu_memory_unmap(memory, ion_mem_buf);
+		kfree(ion_mem_buf);
+	}
+
+	return ret;
+}
+
+int _undo_s_format_each_state(struct npu_session *session)
+{
+	int ret = 0;
+
+	BUG_ON(!session);
+
+	if (session->ss_state < BIT(NPU_SESSION_STATE_IMB_ION_ALLOC)) {
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	if (session->ss_state <= BIT(NPU_SESSION_STATE_FORMAT_OT)) {
+		goto init_format;
+	}
+
+init_format:
+
+p_err:
+	return ret;
+}
+
+int _undo_streamon_each_state(struct npu_session *session)
+{
+	int ret = 0;
+
+	BUG_ON(!session);
+
+	if (session->ss_state < BIT(NPU_SESSION_STATE_FORMAT_OT)) {
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	if (session->ss_state <= BIT(NPU_SESSION_STATE_START))
+		goto release_streamon;
+
+release_streamon:
+
+p_err:
+	return ret;
+}
+
+int _undo_streamoff_each_state(struct npu_session *session)
+{
+	int ret = 0;
+
+	BUG_ON(!session);
+
+	if (session->ss_state < BIT(NPU_SESSION_STATE_START)) {
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	if (session->ss_state <= BIT(NPU_SESSION_STATE_STOP))
+		goto release_streamoff;
+
+release_streamoff:
+
+p_err:
+	return ret;
+}
+
+int _undo_close_each_state(struct npu_session *session)
+{
+	int ret = 0;
+
+	BUG_ON(!session);
+
+	if (session->ss_state < BIT(NPU_SESSION_STATE_STOP)) {
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	if (session->ss_state <= BIT(NPU_SESSION_STATE_CLOSE))
+		goto session_close;
+
+session_close:
+
 p_err:
 	return ret;
 }
@@ -362,7 +511,7 @@ int __ncp_ion_map(struct npu_session *session, struct drv_usr_share *usr_data)
 {
 	int ret = 0;
 
-	struct npu_memory_buffer *ncp_mem_buf;
+	struct npu_memory_buffer *ncp_mem_buf = NULL;
 	mem_opt_e opt = NCP_TYPE;
 
 	ncp_mem_buf = kzalloc(sizeof(struct npu_memory_buffer), GFP_KERNEL);
@@ -373,27 +522,19 @@ int __ncp_ion_map(struct npu_session *session, struct drv_usr_share *usr_data)
 	if (ret) {
 		npu_err("npu_memory_map is fail(%d).\n", ret);
 		kfree(ncp_mem_buf);
-		return ret;
+		goto p_err;
 	}
-	npu_info("ncp_ion_map(0x%pad), vaddr(0x%p)\n", &ncp_mem_buf->daddr, ncp_mem_buf->vaddr);
+	npu_info("ncp_ion_map(0x%pad), vaddr(0x%pK)\n", &ncp_mem_buf->daddr, ncp_mem_buf->vaddr);
 	ret = __update_ncp_info(session, ncp_mem_buf);
 	ret = add_ion_mem(session, ncp_mem_buf, opt);
-
-	return ret;
-}
-
-int __read_ncp_bin(struct npu_session *session, struct npu_binary *binary, size_t ncp_size)
-{
-	int ret = 0;
-	char *ncp_vaddr = (char *)session->ncp_mem_buf->vaddr;
-	ret = npu_binary_read(binary, ncp_vaddr, ncp_size);
+p_err:
 	return ret;
 }
 
 int __get_session_info(struct npu_session *session, struct vs4l_graph *info)
 {
 	int ret = 0;
-	struct drv_usr_share *usr_data;
+	struct drv_usr_share *usr_data = NULL;
 	usr_data = kzalloc(sizeof(struct drv_usr_share), GFP_KERNEL);
 	if (!usr_data) {
 		npu_err("Not enough Memory\n");
@@ -402,9 +543,15 @@ int __get_session_info(struct npu_session *session, struct vs4l_graph *info)
 	}
 	ret = copy_from_user((void *)usr_data, (void *)info->addr, sizeof(struct drv_usr_share));
 	ret = __set_unique_id(session, usr_data);
-	npu_trace("usr_data(0x%p), ncp_size(%u)\n", usr_data, usr_data->ncp_size);
+	npu_utrace("usr_data(0x%pK), ncp_size(%u)\n", session, usr_data, usr_data->ncp_size);
 	ret = copy_to_user((void *)info->addr, (void *)usr_data, sizeof(struct drv_usr_share));
 	ret = __ncp_ion_map(session, usr_data);
+	if (ret) {
+		npu_uerr("__ncp_ion_map is fail(%d)\n", session, ret);
+		goto p_err;
+	}
+	session->ss_state |= BIT(NPU_SESSION_STATE_GRAPH_ION_MAP);
+p_err:
 	kfree(usr_data);
 	return ret;
 }
@@ -604,6 +751,12 @@ int __second_parsing_ncp(
 				// update address vector, m_addr with ncp_alloc_daddr + offset
 				address_vector_index = (mv + i)->address_vector_index;
 				weight_offset = (av + address_vector_index)->m_addr;
+				if (weight_offset > (u32)session->ncp_mem_buf->size) {
+					ret = -EINVAL;
+					npu_uerr("weight_offset is invalid, offset(0x%x), ncp_daddr(0x%x)\n",
+						session, (u32)weight_offset, (u32)session->ncp_mem_buf->size);
+					goto p_err;
+				}
 				(av + address_vector_index)->m_addr = weight_offset + ncp_daddr;
 
 				(*WGT_av + (*WGT_cnt))->av_index = address_vector_index;
@@ -614,7 +767,7 @@ int __second_parsing_ncp(
 				npu_utrace("(*WGT_av + %u)->av_index = %u\n"
 					"(*WGT_av + %u)->size = %zu\n"
 					"(*WGT_av + %u)->daddr = 0x%pad\n"
-					"(*WGT_av + %u)->vaddr = 0x%p\n",
+					"(*WGT_av + %u)->vaddr = 0x%pK\n",
 					session,
 					*WGT_cnt, (*WGT_av + (*WGT_cnt))->av_index,
 					*WGT_cnt, (*WGT_av + (*WGT_cnt))->size,
@@ -628,6 +781,8 @@ int __second_parsing_ncp(
 		}
 	}
 	session->IOFM_cnt = (*IFM_cnt) + (*OFM_cnt);
+	return ret;
+p_err:
 	return ret;
 }
 
@@ -693,7 +848,7 @@ int __ion_alloc_IOFM(struct npu_session *session, struct temp_av **temp_IFM_av, 
 	u32 IOFM_cnt = session->IOFM_cnt;
 
 	IOFM_mem_buf = kzalloc(sizeof(struct npu_memory_buffer) * VISION_MAX_BUFFER, GFP_KERNEL);
-	npu_udbg("ion alloc IOFM(0x%p)\n", session, IOFM_mem_buf);
+	npu_udbg("ion alloc IOFM(0x%pK)\n", session, IOFM_mem_buf);
 
 	for (i = 0; i < VISION_MAX_BUFFER; i++) {
 		(IOFM_mem_buf + i)->size = IOFM_cnt * sizeof(struct address_vector);
@@ -702,9 +857,9 @@ int __ion_alloc_IOFM(struct npu_session *session, struct temp_av **temp_IFM_av, 
 			npu_uerr("npu_memory_alloc is fail(%d).\n", session, ret);
 			goto p_err;
 		}
-		npu_udbg("(IOFM_mem_buf + %d)->vaddr(0x%p), daddr(0x%pad), size(%zu)\n",
+		npu_udbg("(IOFM_mem_buf + %d)->vaddr(0x%pK), daddr(0x%pad), size(%zu)\n",
 			session, i, (IOFM_mem_buf + i)->vaddr, &(IOFM_mem_buf + i)->daddr, (IOFM_mem_buf + i)->size);
-		npu_udbg("(IOFM_mem_buf + %d)->vaddr(0x%p), daddr(0x%pad), size(%zu)\n",
+		npu_udbg("(IOFM_mem_buf + %d)->vaddr(0x%pK), daddr(0x%pad), size(%zu)\n",
 			session, i, (IOFM_mem_buf + i)->vaddr, &(IOFM_mem_buf + i)->daddr, (IOFM_mem_buf + i)->size);
 	}
 
@@ -776,14 +931,14 @@ int __ion_alloc_IMB(struct npu_session *session, struct temp_av **temp_IMB_av)
 		(IMB_mem_buf + i)->size = (*temp_IMB_av + i)->size;
 		ret = npu_memory_alloc(session->memory, IMB_mem_buf + i);
 		if (ret) {
-			npu_err("npu_memory_alloc is fail(%d).\n", ret);
+			npu_uerr("npu_memory_alloc is fail(%d).\n", session, ret);
 			goto p_err;
 		}
 		(av + (*temp_IMB_av + i)->index)->m_addr = (IMB_mem_buf + i)->daddr;
-		npu_dbg("(IMB_mem_buf + %d)->vaddr(0x%p), daddr(0x%pad), size(%zu)\n",
-			i, (IMB_mem_buf + i)->vaddr, &(IMB_mem_buf + i)->daddr, (IMB_mem_buf + i)->size);
-		npu_dbg("(IMB_mem_buf + %d)->vaddr(0x%p), daddr(0x%pad), size(%zu)\n",
-			i, (IMB_mem_buf + i)->vaddr, &(IMB_mem_buf + i)->daddr, (IMB_mem_buf + i)->size);
+		npu_udbg("(IMB_mem_buf + %d)->vaddr(0x%pK), daddr(0x%pad), size(%zu)\n",
+			session, i, (IMB_mem_buf + i)->vaddr, &(IMB_mem_buf + i)->daddr, (IMB_mem_buf + i)->size);
+		npu_udbg("(IMB_mem_buf + %d)->vaddr(0x%pK), daddr(0x%pad), size(%zu)\n",
+			session, i, (IMB_mem_buf + i)->vaddr, &(IMB_mem_buf + i)->daddr, (IMB_mem_buf + i)->size);
 	}
 	ret = add_ion_mem(session, IMB_mem_buf, opt);
 	ret = __make_IMB_info(session, IMB_mem_buf, temp_IMB_av);
@@ -829,25 +984,35 @@ int __config_session_info(struct npu_session *session)
 	temp_OFM_av = kcalloc(temp_OFM_cnt, sizeof(struct temp_av), GFP_KERNEL);
 	temp_IMB_av = kcalloc(temp_IMB_cnt, sizeof(struct temp_av), GFP_KERNEL);
 	WGT_av = kcalloc(WGT_cnt, sizeof(struct addr_info), GFP_KERNEL);
+
 	session->WGT_info = WGT_av;
 
+	session->ss_state |= BIT(NPU_SESSION_STATE_WGT_KALLOC);
+
 	ret = __second_parsing_ncp(session, &temp_IFM_av, &temp_OFM_av, &temp_IMB_av, &WGT_av);
+	if (ret) {
+		npu_uerr("fail(%d) in second_parsing_ncp\n", session, ret);
+		goto p_err;
+	}
 
 	ret = __make_IFM_info(session, &temp_IFM_av);
 
 	ret = __make_OFM_info(session, &temp_OFM_av);
+	session->ss_state |= BIT(NPU_SESSION_STATE_IOFM_KALLOC);
 
 	ret = __ion_alloc_IOFM(session, &temp_IFM_av, &temp_OFM_av);
 	if (ret) {
-		npu_err("fail(%d) in __ion_alloc_IOFM\n", ret);
+		npu_uerr("fail(%d) in __ion_alloc_IOFM\n", session, ret);
 		goto p_err;
 	}
+	session->ss_state |= BIT(NPU_SESSION_STATE_IOFM_ION_ALLOC);
 
 	ret = __ion_alloc_IMB(session, &temp_IMB_av);
 	if (ret) {
-		npu_err("fail(%d) in __ion_alloc_IMB\n", ret);
+		npu_uerr("fail(%d) in __ion_alloc_IMB\n", session, ret);
 		goto p_err;
 	}
+	session->ss_state |= BIT(NPU_SESSION_STATE_IMB_ION_ALLOC);
 
 	direction = DMA_TO_DEVICE;
 	npu_session_ion_sync_for_device(session->ncp_mem_buf, 0, session->ncp_mem_buf->size, direction);
@@ -867,8 +1032,8 @@ p_err:
 int npu_session_s_graph(struct npu_session *session, struct vs4l_graph *info)
 {
 	int ret = 0;
-
-	session->nw_result.result_code = NPU_NW_JUST_STARTED;
+	BUG_ON(!session);
+	BUG_ON(!info);
 	ret = __get_session_info(session, info);
 	if (unlikely(ret)) {
 		npu_uerr("invalid in __get_session_info\n", session);
@@ -879,12 +1044,9 @@ int npu_session_s_graph(struct npu_session *session, struct vs4l_graph *info)
 		npu_uerr("invalid in __config_session_info\n", session);
 		goto p_err;
 	}
-
 	return ret;
 p_err:
 	npu_uerr("Clean-up buffers for graph\n", session);
-	__release_graph_ion(session);
-
 	return ret;
 }
 
@@ -893,12 +1055,22 @@ int npu_session_start(struct npu_queue *queue)
 	int ret = 0;
 	struct npu_vertex_ctx *vctx;
 	struct npu_session *session;
-	nw_cmd_e nw_cmd = NPU_NW_CMD_STREAMON;
 
 	BUG_ON(!queue);
 
 	vctx = container_of(queue, struct npu_vertex_ctx, queue);
 	session = container_of(vctx, struct npu_session, vctx);
+
+	session->ss_state |= BIT(NPU_SESSION_STATE_START);
+	return ret;
+}
+
+int npu_session_NW_CMD_STREAMON(struct npu_session *session)
+{
+	int ret = 0;
+	nw_cmd_e nw_cmd = NPU_NW_CMD_STREAMON;
+
+	BUG_ON(!session);
 
 	profile_point1(PROBE_ID_DD_NW_RECEIVED, session->uid, 0, nw_cmd);
 	session->nw_result.result_code = NPU_NW_JUST_STARTED;
@@ -910,92 +1082,44 @@ int npu_session_start(struct npu_queue *queue)
 	return ret;
 }
 
-int __npu_session_stop(struct npu_queue *queue, struct npu_session *session)
-{
-	int ret = 0;
-	unsigned long flags;
-	struct vb_queue *inq, *otq;
-	struct vb_bundle *pos_vb;
-	struct vb_bundle *n_vb;
-
-	inq = &queue->inqueue;
-	otq = &queue->otqueue;
-
-	list_for_each_entry_safe(pos_vb, n_vb, &inq->queued_list, queued_entry) {
-		if (pos_vb->state == VB_BUF_STATE_QUEUED) {
-			list_del(&pos_vb->queued_entry);
-			atomic_dec(&inq->queued_count);
-		}
-	}
-
-	spin_lock_irqsave(&inq->done_lock, flags);
-	list_for_each_entry_safe(pos_vb, n_vb, &inq->done_list, done_entry) {
-		if (pos_vb->state == VB_BUF_STATE_DONE)	{
-			list_del(&pos_vb->done_entry);
-			atomic_dec(&inq->done_count);
-			pos_vb->state = VB_BUF_STATE_DEQUEUED;
-			list_del(&pos_vb->queued_entry);
-			atomic_dec(&inq->queued_count);
-		}
-	}
-	spin_unlock_irqrestore(&inq->done_lock, flags);
-
-	list_for_each_entry_safe(pos_vb, n_vb, &otq->queued_list, queued_entry) {
-		if (pos_vb->state == VB_BUF_STATE_QUEUED) {
-			list_del(&pos_vb->queued_entry);
-			atomic_dec(&otq->queued_count);
-		}
-	}
-
-	spin_lock_irqsave(&otq->done_lock, flags);
-	list_for_each_entry_safe(pos_vb, n_vb, &otq->done_list, done_entry) {
-		if (pos_vb->state == VB_BUF_STATE_DONE) {
-			list_del(&pos_vb->done_entry);
-			atomic_dec(&otq->done_count);
-			pos_vb->state = VB_BUF_STATE_DEQUEUED;
-			list_del(&pos_vb->queued_entry);
-			atomic_dec(&otq->queued_count);
-		}
-	}
-	spin_unlock_irqrestore(&otq->done_lock, flags);
-
-	return ret;
-}
-
 int npu_session_streamoff(struct npu_queue *queue)
 {
 	int ret = 0;
-	struct npu_session *session;
-	struct npu_vertex_ctx *vctx;
-
-	struct npu_vertex *vertex;
-	struct npu_device *device;
-
-	nw_cmd_e nw_cmd = NPU_NW_CMD_STREAMOFF;
 
 	BUG_ON(!queue);
+	return ret;
+}
 
-	vctx = container_of(queue, struct npu_vertex_ctx, queue);
-	session = container_of(vctx, struct npu_session, vctx);
+int npu_session_NW_CMD_STREAMOFF(struct npu_session *session)
+{
+	int ret = 0;
+	struct npu_vertex_ctx *vctx;
+	struct npu_vertex *vertex;
+	struct npu_device *device;
+	nw_cmd_e nw_cmd = NPU_NW_CMD_STREAMOFF;
+
+	BUG_ON(!session);
 
 	/* check npu_device emergency error */
+	vctx = &session->vctx;
 	vertex = vctx->vertex;
 	device = container_of(vertex, struct npu_device, vertex);
 
-	if (!npu_device_is_emergency_err(device)) {
-		npu_dbg("sending STREAM OFF command.\n");
-		profile_point1(PROBE_ID_DD_NW_RECEIVED, session->uid, 0, nw_cmd);
-		session->nw_result.result_code = NPU_NW_JUST_STARTED;
-		npu_session_put_nw_req(session, nw_cmd);
-		wait_event(session->wq, session->nw_result.result_code != NPU_NW_JUST_STARTED);
-		profile_point1(PROBE_ID_DD_NW_NOTIFIED, session->uid, 0, nw_cmd);
+	npu_udbg("sending STREAM OFF command.\n", session);
+	profile_point1(PROBE_ID_DD_NW_RECEIVED, session->uid, 0, nw_cmd);
+	session->nw_result.result_code = NPU_NW_JUST_STARTED;
+	npu_session_put_nw_req(session, nw_cmd);
+	wait_event(session->wq, session->nw_result.result_code != NPU_NW_JUST_STARTED);
+	profile_point1(PROBE_ID_DD_NW_NOTIFIED, session->uid, 0, nw_cmd);
 
-	} else {
-		npu_dbg("%s() : NPU DEVICE IS EMERGENCY ERROR !\n", __func__);
+	if (npu_device_is_emergency_err(device)) {
+		npu_udbg("NPU DEVICE IS EMERGENCY ERROR !\n", session);
+		npu_udbg("sending CLEAR_CB command.\n", session);
+		npu_session_put_nw_req(session, NPU_NW_CMD_CLEAR_CB);
+		/* Clear CB has no notify function */
 	}
 
-	npu_uinfo("%s: (%d)\n", session, __func__, ret);
-	return 0;
+	return ret;
 }
 
 int npu_session_stop(struct npu_queue *queue)
@@ -1009,12 +1133,9 @@ int npu_session_stop(struct npu_queue *queue)
 	vctx = container_of(queue, struct npu_vertex_ctx, queue);
 	session = container_of(vctx, struct npu_session, vctx);
 
-	ret = __npu_session_stop(queue, session);
-	if (ret)
-		npu_uerr("fail(%d) in __npu_session_stop\n", session, ret);
+	session->ss_state |= BIT(NPU_SESSION_STATE_STOP);
 
-	npu_uinfo("%s: (%d)\n", session, __func__, ret);
-	return 0;
+	return ret;
 }
 
 int npu_session_format(struct npu_queue *queue, struct vs4l_format_list *flist)
@@ -1029,9 +1150,7 @@ int npu_session_format(struct npu_queue *queue, struct vs4l_format_list *flist)
 	struct memory_vector *mv;
 
 	char *ncp_vaddr;
-
 	struct vs4l_format *formats;
-
 	struct addr_info *FM_av;
 	u32 address_vector_offset;
 	u32 address_vector_cnt;
@@ -1039,22 +1158,22 @@ int npu_session_format(struct npu_queue *queue, struct vs4l_format_list *flist)
 	u32 memory_vector_offset;
 	u32 memory_vector_cnt;
 
-	u32 IFM_cnt;
-	u32 OFM_cnt;
-
 	u32 cal_size;
 	u32 bpp;
 	u32 channels;
 	u32 width;
 	u32 height;
 
-	nw_cmd_e nw_cmd = NPU_NW_CMD_LOAD;
+	u32 FM_cnt;
+
+	BUG_ON(!queue);
+	BUG_ON(!flist);
 
 	vctx = container_of(queue, struct npu_vertex_ctx, queue);
 	session = container_of(vctx, struct npu_session, vctx);
 
-	if (flist->direction == VS4L_DIRECTION_OT)
-		profile_point1(PROBE_ID_DD_NW_RECEIVED, session->uid, 0, nw_cmd);
+	BUG_ON(!vctx);
+	BUG_ON(!session);
 
 	ncp_vaddr = (char *)session->ncp_mem_buf->vaddr;
 	ncp = (struct ncp_header *)ncp_vaddr;
@@ -1068,63 +1187,60 @@ int npu_session_format(struct npu_queue *queue, struct vs4l_format_list *flist)
 	mv = (struct memory_vector *)(ncp_vaddr + memory_vector_offset);
 	av = (struct address_vector *)(ncp_vaddr + address_vector_offset);
 
-	IFM_cnt = session->IFM_cnt;
-	OFM_cnt = session->OFM_cnt;
-
 	formats = flist->formats;
 
 	if (flist->direction == VS4L_DIRECTION_IN) {
 		FM_av = session->IFM_info[0].addr_info;
-		for (i = 0; i < IFM_cnt; i++) {
-			(mv + (FM_av + i)->av_index)->stride = (formats + i)->stride;
-			(mv + (FM_av + i)->av_index)->cstride = (formats + i)->cstride;
-
-			bpp = (formats + i)->pixel_format;
-			channels = (formats + i)->channels;
-			width = (formats + i)->width;
-			height = (formats + i)->height;
-			cal_size = (bpp / 8) * channels * width * height;
-
-			npu_dbg("in, av_index(%d)\n", (FM_av + i)->av_index);
-			npu_dbg("in, av_size(%zu), cal_size(%u)\n", (FM_av + i)->size, cal_size);
-
-#ifndef SYSMMU_FAULT_TEST
-			if ((FM_av + i)->size > cal_size) {
-				npu_info("in_size(%zu), cal_size(%u) invalid\n", (FM_av + i)->size, cal_size);
-				ret = NPU_ERR_DRIVER(NPU_ERR_SIZE_NOT_MATCH);
-				goto p_err;
-			}
-#endif
-		}
+		FM_cnt = session->IFM_cnt;
 	} else {
 		FM_av = session->OFM_info[0].addr_info;
-		for (i = 0; i < OFM_cnt; i++) {
-			(mv + (FM_av + i)->av_index)->stride = (formats + i)->stride;
-			(mv + (FM_av + i)->av_index)->cstride = (formats + i)->cstride;
-
-			bpp = (formats + i)->pixel_format;
-			channels = (formats + i)->channels;
-			width = (formats + i)->width;
-			height = (formats + i)->height;
-			cal_size = (bpp / 8) * channels * width * height;
-
-			npu_dbg("ot, av_index(%u)\n", (FM_av + i)->av_index);
-			npu_dbg("ot, av_size(%zu), cal_size(%u)\n", (FM_av + i)->size, cal_size);
-
-#ifndef SYSMMU_FAULT_TEST
-			if ((FM_av + i)->size > cal_size) {
-				npu_info("ot_size(%zu), cal_size(%u) invalid\n", (FM_av + i)->size, cal_size);
-				ret = NPU_ERR_DRIVER(NPU_ERR_SIZE_NOT_MATCH);
-				goto p_err;
-			}
-#endif
-		}
-		npu_session_put_nw_req(session, nw_cmd);
-		wait_event(session->wq, session->nw_result.result_code != NPU_NW_JUST_STARTED);
-		profile_point1(PROBE_ID_DD_NW_NOTIFIED, session->uid, 0, nw_cmd);
+		FM_cnt = session->OFM_cnt;
 	}
-	goto p_err;
+
+	if (flist->count != FM_cnt) {
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	for (i = 0; i < FM_cnt; i++) {
+		(mv + (FM_av + i)->av_index)->stride = (formats + i)->stride;
+		(mv + (FM_av + i)->av_index)->cstride = (formats + i)->cstride;
+
+		bpp = (formats + i)->pixel_format;
+		channels = (formats + i)->channels;
+		width = (formats + i)->width;
+		height = (formats + i)->height;
+		cal_size = (bpp / 8) * channels * width * height;
+
+		npu_udbg("dir(%d), av_index(%d)\n", session, flist->direction, (FM_av + i)->av_index);
+		npu_udbg("dir(%d), av_size(%zu), cal_size(%u)\n", session, flist->direction, (FM_av + i)->size, cal_size);
+#ifndef SYSMMU_FAULT_TEST
+		if ((FM_av + i)->size > cal_size) {
+			npu_uinfo("in_size(%zu), cal_size(%u) invalid\n", session, (FM_av + i)->size, cal_size);
+			ret = NPU_ERR_DRIVER(NPU_ERR_SIZE_NOT_MATCH);
+			goto p_err;
+		}
+#endif
+	}
+
+	if (flist->direction == VS4L_DIRECTION_IN) {
+		session->ss_state |= BIT(NPU_SESSION_STATE_FORMAT_IN);
+	} else {
+		session->ss_state |= BIT(NPU_SESSION_STATE_FORMAT_OT);
+	}
 p_err:
+	return ret;
+}
+
+int npu_session_NW_CMD_LOAD(struct npu_session *session)
+{
+	int ret = 0;
+	nw_cmd_e nw_cmd = NPU_NW_CMD_LOAD;
+	profile_point1(PROBE_ID_DD_NW_RECEIVED, session->uid, 0, nw_cmd);
+	session->nw_result.result_code = NPU_NW_JUST_STARTED;
+	npu_session_put_nw_req(session, nw_cmd);
+	wait_event(session->wq, session->nw_result.result_code != NPU_NW_JUST_STARTED);
+	profile_point1(PROBE_ID_DD_NW_NOTIFIED, session->uid, 0, nw_cmd);
 	return ret;
 }
 
@@ -1138,7 +1254,6 @@ int __update_qbuf_IOFM_daddr(struct npu_session *session, struct addr_info *IFM_
 	u32 IOFM_cnt = session->IOFM_cnt;
 
 	int cur_IOFM_idx = session->qbuf_IOFM_idx;
-
 
 	if (cur_IOFM_idx == -1 || cur_IOFM_idx >= VISION_MAX_BUFFER) {
 		ret = -EINVAL;
@@ -1448,7 +1563,7 @@ int npu_session_param(struct npu_session *session, struct vs4l_param_list *plist
 			ret = (*p_fn)(session, param, &retval);
 			if (ret != S_PARAM_NOMB) {
 				/* Handled */
-				npu_udbg("Handled by handler at [%p] ret = %d\n",
+				npu_udbg("Handled by handler at [%pK] ret = %d\n",
 					session, *p_fn, ret);
 				break;
 			}
@@ -1468,4 +1583,80 @@ const struct vb_ops vb_ops = {
 	.buf_prepare = npu_session_prepare,
 	.buf_unprepare = npu_session_unprepare
 };
+
+int npu_session_register_undo_cb(struct npu_session *session, session_cb cb)
+{
+	int ret = 0;
+
+	BUG_ON(!session);
+
+	session->undo_cb = cb;
+
+	return ret;
+}
+
+int npu_session_execute_undo_cb(struct npu_session *session)
+{
+	int ret = 0;
+
+	BUG_ON(!session);
+
+	if (session->undo_cb)
+		session->undo_cb(session);
+
+	return ret;
+}
+
+int npu_session_undo_open(struct npu_session *session)
+{
+	int ret = 0;
+
+	BUG_ON(!session);
+
+	if (session->ss_state < BIT(NPU_SESSION_STATE_OPEN)) {
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	if (session->ss_state <= BIT(NPU_SESSION_STATE_OPEN))
+		goto session_free;
+
+	npu_sessionmgr_unregID(session->cookie, session);
+
+session_free:
+	kfree(session);
+	session = NULL;
+p_err:
+	return ret;
+}
+
+int npu_session_undo_s_graph(struct npu_session *session)
+{
+	int ret = 0;
+
+	if (!_undo_s_graph_each_state(session)) {
+		npu_session_register_undo_cb(session, NULL);
+		goto next_cb;
+	}
+	ret = -EINVAL;
+	return ret;
+next_cb:
+	npu_session_execute_undo_cb(session);
+	return ret;
+}
+
+int npu_session_undo_close(struct npu_session *session)
+{
+	int ret = 0;
+
+	if (!_undo_close_each_state(session)) {
+		npu_session_register_undo_cb(session, npu_session_undo_s_graph);
+		goto next_cb;
+	}
+	ret = -EINVAL;
+	return ret;
+next_cb:
+	npu_session_execute_undo_cb(session);
+	return ret;
+}
 

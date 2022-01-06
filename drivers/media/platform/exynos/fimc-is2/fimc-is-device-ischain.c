@@ -795,11 +795,6 @@ static const struct vra_param init_vra_param = {
 	},
 };
 
-static char setfile_version_str[60];
-static char ddk_version_str[60];
-static char rta_version_str[60];
-static char comp_version_str[60];
-
 #if !defined(DISABLE_SETFILE)
 static void fimc_is_ischain_cache_flush(struct fimc_is_device_ischain *this,
 	u32 offset, u32 size)
@@ -843,84 +838,6 @@ void fimc_is_ischain_meta_invalid(struct fimc_is_frame *frame)
 
 }
 
-void fimc_is_ischain_version(enum fimc_is_bin_type type, const char *load_bin, u32 size)
-{
-	char version_str[60];
-
-	switch (type) {
-	case FIMC_IS_BIN_FW:
-		if (size > FIMC_IS_VERSION_SIZE) {
-			memcpy(version_str, &load_bin[size - FIMC_IS_VERSION_SIZE],
-				FIMC_IS_VERSION_SIZE);
-			version_str[FIMC_IS_VERSION_SIZE] = '\0';
-			info("Phone FW version : %s\n", version_str);
-		} else {
-			err("type %d size error(%d)\n", type, size);
-		}
-		break;
-	case FIMC_IS_BIN_SETFILE:
-		if (size > FIMC_IS_SETFILE_VER_OFFSET) {
-			memcpy(setfile_version_str, &load_bin[size - FIMC_IS_SETFILE_VER_OFFSET],
-				FIMC_IS_SETFILE_VER_SIZE);
-			setfile_version_str[FIMC_IS_SETFILE_VER_SIZE] = '\0';
-			info("SETFILE version : %s\n", setfile_version_str);
-		} else {
-			err("type %d size error(%d)\n", type, size);
-		}
-		break;
-	case FIMC_IS_BIN_DDK_LIBRARY:
-		if (size > DDK_VERSION_OFFSET) {
-			memcpy(ddk_version_str, &load_bin[size - DDK_VERSION_OFFSET],
-				FIMC_IS_VERSION_BIN_SIZE);
-			ddk_version_str[FIMC_IS_VERSION_BIN_SIZE] = '\0';
-			info("DDK version : %s\n", ddk_version_str);
-		} else {
-			err("type %d size error(%d)\n", type, size);
-		}
-		break;
-	case FIMC_IS_BIN_RTA_LIBRARY:
-		if (size > RTA_VERSION_OFFSET) {
-			memcpy(rta_version_str, &load_bin[size - RTA_VERSION_OFFSET],
-				FIMC_IS_VERSION_BIN_SIZE);
-			rta_version_str[FIMC_IS_VERSION_BIN_SIZE] = '\0';
-			info("RTA version : %s\n", rta_version_str);
-		} else {
-			err("type %d size error(%d)\n", type, size);
-		}
-		break;
-	case FIMC_IS_BIN_COMPANION:
-		if (size < sizeof(comp_version_str)) {
-			memcpy(comp_version_str, load_bin, size);
-			comp_version_str[size] = '\0';
-			info("COMPANION version : %s\n", comp_version_str);
-		} else {
-			err("type %d size error(%d)\n", type, size);
-		}
-		break;
-	default:
-		info("SKIP version info: type(%d)\n", type);
-		break;
-	}
-}
-
-char* fimc_is_ischain_get_version(enum fimc_is_bin_type type)
-{
-	switch (type) {
-	case FIMC_IS_BIN_SETFILE:
-		return setfile_version_str;
-	case FIMC_IS_BIN_DDK_LIBRARY:
-		return ddk_version_str;
-	case FIMC_IS_BIN_RTA_LIBRARY:
-		return rta_version_str;
-	case FIMC_IS_BIN_COMPANION:
-		return comp_version_str;
-	default:
-		info("SKIP version info: type(%d)\n", type);
-		break;
-	}
-	return "N/A";
-}
-
 void fimc_is_ischain_savefirm(struct fimc_is_device_ischain *this)
 {
 #ifdef DEBUG_DUMP_FIRMWARE
@@ -957,7 +874,7 @@ static int fimc_is_ischain_loadfirm(struct fimc_is_device_ischain *device,
 	set_fs(KERNEL_DS);
 	fp = filp_open(vender->fw_path, O_RDONLY, 0);
 	if (IS_ERR_OR_NULL(fp)) {
-		fw_load_ret = fimc_is_vender_fw_filp_open(vender, &fp, FIMC_IS_BIN_FW);
+		fw_load_ret = fimc_is_vender_fw_filp_open(vender, &fp, IS_BIN_FW);
 		if (fw_load_ret == FW_SKIP) {
 			goto request_fw;
 		} else if (fw_load_ret == FW_FAIL) {
@@ -987,7 +904,6 @@ static int fimc_is_ischain_loadfirm(struct fimc_is_device_ischain *device,
 
 	memcpy((void *)device->minfo->kvaddr, (void *)buf, fsize);
 	fimc_is_ischain_cache_flush(device, 0, fsize + 1);
-	fimc_is_ischain_version(FIMC_IS_BIN_FW, buf, fsize);
 
 request_fw:
 	if (fw_requested) {
@@ -1020,7 +936,6 @@ request_fw:
 
 		memcpy((void *)device->minfo->kvaddr, fw_blob->data, fw_blob->size);
 		fimc_is_ischain_cache_flush(device, 0, fw_blob->size + 1);
-		fimc_is_ischain_version(FIMC_IS_BIN_FW, fw_blob->data, fw_blob->size);
 	}
 
 out:
@@ -1188,7 +1103,7 @@ static int fimc_is_ischain_loadsetf(struct fimc_is_device_ischain *device,
 	set_fs(KERNEL_DS);
 	fp = filp_open(vender->setfile_path[position], O_RDONLY, 0);
 	if (IS_ERR_OR_NULL(fp)) {
-		fw_load_ret = fimc_is_vender_fw_filp_open(vender, &fp, FIMC_IS_BIN_SETFILE);
+		fw_load_ret = fimc_is_vender_fw_filp_open(vender, &fp, IS_BIN_SETFILE);
 		if (fw_load_ret == FW_SKIP) {
 			goto request_fw;
 		} else if (fw_load_ret == FW_FAIL) {
@@ -1220,7 +1135,7 @@ static int fimc_is_ischain_loadsetf(struct fimc_is_device_ischain *device,
 	address = (void *)(device->minfo->kvaddr + load_addr);
 	memcpy((void *)address, (void *)buf, fsize);
 	fimc_is_ischain_cache_flush(device, load_addr, fsize + 1);
-	fimc_is_ischain_version(FIMC_IS_BIN_SETFILE, buf, fsize);
+	carve_binary_version(IS_BIN_SETFILE, position, buf, fsize);
 
 request_fw:
 	if (fw_requested) {
@@ -1256,7 +1171,8 @@ request_fw:
 		address = (void *)(device->minfo->kvaddr + load_addr);
 		memcpy(address, fw_blob->data, fw_blob->size);
 		fimc_is_ischain_cache_flush(device, load_addr, fw_blob->size + 1);
-		fimc_is_ischain_version(FIMC_IS_BIN_SETFILE, fw_blob->data, (u32)fw_blob->size);
+		carve_binary_version(IS_BIN_SETFILE, position,
+				(void *)fw_blob->data, fw_blob->size);
 	}
 
 out:
@@ -6835,6 +6751,7 @@ static int fimc_is_ischain_paf_shot(struct fimc_is_device_ischain *device,
 {
 	int ret = 0;
 	unsigned long flags;
+	struct fimc_is_resourcemgr *resourcemgr;
 	struct fimc_is_group *group, *child, *vra;
 	struct fimc_is_framemgr *framemgr;
 	struct fimc_is_frame *frame;
@@ -6847,14 +6764,15 @@ static int fimc_is_ischain_paf_shot(struct fimc_is_device_ischain *device,
 
 	mdbgs_ischain(4, "%s()\n", device, __func__);
 
-	frame = NULL;
+	resourcemgr = device->resourcemgr;
 	group = &device->group_paf;
+	frame = NULL;
 
 	framemgr = GET_HEAD_GROUP_FRAMEMGR(group);
 	if (!framemgr) {
 		merr("framemgr is NULL", device);
 		ret = -EINVAL;
-		goto p_err;
+		goto framemgr_err;
 	}
 
 	frame = peek_frame(framemgr, FS_REQUEST);
@@ -6862,7 +6780,7 @@ static int fimc_is_ischain_paf_shot(struct fimc_is_device_ischain *device,
 	if (unlikely(!frame)) {
 		merr("frame is NULL", device);
 		ret = -EINVAL;
-		goto p_err;
+		goto frame_err;
 	}
 
 	if (unlikely(frame != check_frame)) {
@@ -6930,6 +6848,19 @@ static int fimc_is_ischain_paf_shot(struct fimc_is_device_ischain *device,
 			minfo("frame count(%d), intent(%d), count(%d) captureExposureTime(%d) remainIntentCount(%d)\n", device, frame->fcount,
 				frame->shot->ctl.aa.captureIntent, frame->shot->ctl.aa.vendor_captureCount,
 				frame->shot->ctl.aa.vendor_captureExposureTime, group->remainIntentCount);
+		}
+
+		/*
+		 * Adjust the shot timeout value based on sensor exposure time control.
+		 * Exposure Time >= (FIMC_IS_SHOT_TIMEOUT - 1sec): Increase shot timeout value.
+		 */
+		if (frame->shot->ctl.aa.vendor_captureExposureTime >= ((FIMC_IS_SHOT_TIMEOUT * 1000) - 1000000)) {
+			resourcemgr->shot_timeout = (frame->shot->ctl.aa.vendor_captureExposureTime / 1000) + FIMC_IS_SHOT_TIMEOUT;
+			resourcemgr->shot_timeout_tick = KEEP_FRAME_TICK_DEFAULT;
+		} else if (resourcemgr->shot_timeout_tick > 0) {
+			resourcemgr->shot_timeout_tick--;
+		} else {
+			resourcemgr->shot_timeout = FIMC_IS_SHOT_TIMEOUT;
 		}
 	}
 
@@ -7041,6 +6972,8 @@ p_err:
 		framemgr_x_barrier_irqr(framemgr, FMGR_IDX_25, flags);
 	}
 
+frame_err:
+framemgr_err:
 	return ret;
 }
 
@@ -7049,6 +6982,7 @@ static int fimc_is_ischain_3aa_shot(struct fimc_is_device_ischain *device,
 {
 	int ret = 0;
 	unsigned long flags;
+	struct fimc_is_resourcemgr *resourcemgr;
 	struct fimc_is_group *group, *child, *vra;
 	struct fimc_is_framemgr *framemgr;
 	struct fimc_is_frame *frame;
@@ -7060,9 +6994,6 @@ static int fimc_is_ischain_3aa_shot(struct fimc_is_device_ischain *device,
 	uint32_t af_trigger_bk;
 	enum aa_afstate vendor_afstate_bk;
 	enum aa_capture_intent captureIntent_bk;
-	struct fimc_is_resourcemgr *resourcemgr;
-
-	resourcemgr = device->resourcemgr;
 #endif
 
 	mdbgs_ischain(4, "%s()\n", device, __func__);
@@ -7070,14 +7001,15 @@ static int fimc_is_ischain_3aa_shot(struct fimc_is_device_ischain *device,
 	FIMC_BUG(!device);
 	FIMC_BUG(!check_frame);
 
-	frame = NULL;
+	resourcemgr = device->resourcemgr;
 	group = &device->group_3aa;
+	frame = NULL;
 
 	framemgr = GET_HEAD_GROUP_FRAMEMGR(group);
 	if (!framemgr) {
 		merr("framemgr is NULL", device);
 		ret = -EINVAL;
-		goto p_err;
+		goto framemgr_err;
 	}
 
 	frame = peek_frame(framemgr, FS_REQUEST);
@@ -7085,7 +7017,7 @@ static int fimc_is_ischain_3aa_shot(struct fimc_is_device_ischain *device,
 	if (unlikely(!frame)) {
 		merr("frame is NULL", device);
 		ret = -EINVAL;
-		goto p_err;
+		goto frame_err;
 	}
 
 	if (unlikely(frame != check_frame)) {
@@ -7177,6 +7109,19 @@ static int fimc_is_ischain_3aa_shot(struct fimc_is_device_ischain *device,
 		if (group->lens_ctl.aperture != 0) {
 			frame->shot->ctl.lens.aperture = group->lens_ctl.aperture;
 			group->lens_ctl.aperture = 0;
+		}
+
+		/*
+		 * Adjust the shot timeout value based on sensor exposure time control.
+		 * Exposure Time >= (FIMC_IS_SHOT_TIMEOUT - 1sec): Increase shot timeout value.
+		 */
+		if (frame->shot->ctl.aa.vendor_captureExposureTime >= ((FIMC_IS_SHOT_TIMEOUT * 1000) - 1000000)) {
+			resourcemgr->shot_timeout = (frame->shot->ctl.aa.vendor_captureExposureTime / 1000) + FIMC_IS_SHOT_TIMEOUT;
+			resourcemgr->shot_timeout_tick = KEEP_FRAME_TICK_DEFAULT;
+		} else if (resourcemgr->shot_timeout_tick > 0) {
+			resourcemgr->shot_timeout_tick--;
+		} else {
+			resourcemgr->shot_timeout = FIMC_IS_SHOT_TIMEOUT;
 		}
 	}
 
@@ -7277,7 +7222,9 @@ p_err:
 		trans_frame(framemgr, frame, FS_PROCESS);
 #ifdef SENSOR_REQUEST_DELAY
 		if (test_bit(FIMC_IS_GROUP_OTF_INPUT, &group->state) &&
-			(frame->shot->uctl.opMode == CAMERA_OP_MODE_HAL3_GED)) {
+			(frame->shot->uctl.opMode == CAMERA_OP_MODE_HAL3_GED
+			|| frame->shot->uctl.opMode == CAMERA_OP_MODE_HAL3_SDK
+			|| frame->shot->uctl.opMode == CAMERA_OP_MODE_HAL3_CAMERAX)) {
 			if (framemgr->queued_count[FS_REQUEST] < SENSOR_REQUEST_DELAY)
 				mgrwarn(" late sensor control shot", device, group, frame);
 		}
@@ -7285,6 +7232,8 @@ p_err:
 		framemgr_x_barrier_irqr(framemgr, FMGR_IDX_25, flags);
 	}
 
+frame_err:
+framemgr_err:
 	return ret;
 }
 
@@ -7313,7 +7262,7 @@ static int fimc_is_ischain_isp_shot(struct fimc_is_device_ischain *device,
 	if (!framemgr) {
 		merr("framemgr is NULL", device);
 		ret = -EINVAL;
-		goto p_err;
+		goto framemgr_err;
 	}
 
 	frame = peek_frame(framemgr, FS_REQUEST);
@@ -7321,7 +7270,7 @@ static int fimc_is_ischain_isp_shot(struct fimc_is_device_ischain *device,
 	if (unlikely(!frame)) {
 		merr("frame is NULL", device);
 		ret = -EINVAL;
-		goto p_err;
+		goto frame_err;
 	}
 
 	if (unlikely(frame != check_frame)) {
@@ -7452,6 +7401,8 @@ p_err:
 		framemgr_x_barrier_irqr(framemgr, FMGR_IDX_26, flags);
 	}
 
+frame_err:
+framemgr_err:
 	return ret;
 }
 
@@ -7478,7 +7429,7 @@ static int fimc_is_ischain_dis_shot(struct fimc_is_device_ischain *device,
 	if (!framemgr) {
 		merr("framemgr is NULL", device);
 		ret = -EINVAL;
-		goto p_err;
+		goto framemgr_err;
 	}
 
 	frame = peek_frame(framemgr, FS_REQUEST);
@@ -7486,7 +7437,7 @@ static int fimc_is_ischain_dis_shot(struct fimc_is_device_ischain *device,
 	if (unlikely(!frame)) {
 		merr("frame is NULL", device);
 		ret = -EINVAL;
-		goto p_err;
+		goto frame_err;
 	}
 
 	if (unlikely(frame != check_frame)) {
@@ -7580,6 +7531,8 @@ p_err:
 		framemgr_x_barrier_irqr(framemgr, FMGR_IDX_27, flags);
 	}
 
+frame_err:
+framemgr_err:
 	return ret;
 }
 
@@ -7606,7 +7559,7 @@ static int fimc_is_ischain_dcp_shot(struct fimc_is_device_ischain *device,
 	if (!framemgr) {
 		merr("framemgr is NULL", device);
 		ret = -EINVAL;
-		goto p_err;
+		goto framemgr_err;
 	}
 
 	frame = peek_frame(framemgr, FS_REQUEST);
@@ -7614,7 +7567,7 @@ static int fimc_is_ischain_dcp_shot(struct fimc_is_device_ischain *device,
 	if (unlikely(!frame)) {
 		merr("frame is NULL", device);
 		ret = -EINVAL;
-		goto p_err;
+		goto frame_err;
 	}
 
 	if (unlikely(frame != check_frame)) {
@@ -7694,6 +7647,8 @@ p_err:
 		framemgr_x_barrier_irqr(framemgr, FMGR_IDX_28, flags);
 	}
 
+frame_err:
+framemgr_err:
 	return ret;
 }
 
@@ -7721,7 +7676,7 @@ static int fimc_is_ischain_mcs_shot(struct fimc_is_device_ischain *device,
 	if (!framemgr) {
 		merr("framemgr is NULL", device);
 		ret = -EINVAL;
-		goto p_err;
+		goto framemgr_err;
 	}
 
 	frame = peek_frame(framemgr, FS_REQUEST);
@@ -7729,7 +7684,7 @@ static int fimc_is_ischain_mcs_shot(struct fimc_is_device_ischain *device,
 	if (unlikely(!frame)) {
 		merr("frame is NULL", device);
 		ret = -EINVAL;
-		goto p_err;
+		goto frame_err;
 	}
 
 	if (unlikely(frame != check_frame)) {
@@ -7830,6 +7785,8 @@ p_err:
 		framemgr_x_barrier_irqr(framemgr, FMGR_IDX_29, flags);
 	}
 
+frame_err:
+framemgr_err:
 	return ret;
 }
 
@@ -7857,7 +7814,7 @@ static int fimc_is_ischain_vra_shot(struct fimc_is_device_ischain *device,
 	if (!framemgr) {
 		merr("framemgr is NULL", device);
 		ret = -EINVAL;
-		goto p_err;
+		goto framemgr_err;
 	}
 
 	frame = peek_frame(framemgr, FS_REQUEST);
@@ -7865,7 +7822,7 @@ static int fimc_is_ischain_vra_shot(struct fimc_is_device_ischain *device,
 	if (unlikely(!frame)) {
 		merr("frame is NULL", device);
 		ret = -EINVAL;
-		goto p_err;
+		goto frame_err;
 	}
 
 	if (unlikely(frame != check_frame)) {
@@ -7954,6 +7911,9 @@ p_err:
 		trans_frame(framemgr, frame, FS_PROCESS);
 		framemgr_x_barrier_irqr(framemgr, FMGR_IDX_30, flags);
 	}
+
+frame_err:
+framemgr_err:
 	return ret;
 }
 

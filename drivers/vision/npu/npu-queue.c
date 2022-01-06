@@ -43,7 +43,6 @@ int npu_queue_open(struct npu_queue *queue,
 		npu_err("fail(%d) in vb_queue_init\n", ret);
 		goto p_err;
 	}
-
 p_err:
 	return ret;
 }
@@ -124,7 +123,7 @@ p_err:
 	return ret;
 }
 
-int npu_queue_stop(struct npu_queue *queue)
+int npu_queue_stop(struct npu_queue *queue, int is_forced)
 {
 	int ret = 0;
 	struct vb_queue *inq, *otq;
@@ -142,21 +141,29 @@ int npu_queue_stop(struct npu_queue *queue)
 		goto p_err;
 	}
 
+	if (!is_forced)
+		ret = vb_queue_stop(inq);
+	else
+		ret = vb_queue_stop_forced(inq);
+
+	if (ret) {
+		npu_err("fail(%d) in vb_queue_stop%s(inq)\n", ret, (is_forced)?"_forced":"");
+		goto p_err;
+	}
+
+	if (!is_forced)
+		ret = vb_queue_stop(otq);
+	else
+		ret = vb_queue_stop_forced(otq);
+
+	if (ret) {
+		npu_err("fail(%d) in vb_queue_stop%s(otq)\n", ret, (is_forced)?"_forced":"");
+		goto p_err;
+	}
+
 	ret = CALL_QOPS(queue, stop);
 	if (ret) {
 		npu_err("fail(%d) in CALL_QOPS(stop)\n", ret);
-		goto p_err;
-	}
-
-	ret = vb_queue_stop(inq);
-	if (ret) {
-		npu_err("fail(%d) in vb_queue_init\n", ret);
-		goto p_err;
-	}
-
-	ret = vb_queue_stop(otq);
-	if (ret) {
-		npu_err("fail(%d) in vb_queue_init\n", ret);
 		goto p_err;
 	}
 
@@ -407,31 +414,31 @@ void __npu_queue_print(struct vb_queue *q)
 	struct list_head *pos;
 
 	npu_info("[npuQ] qcnt(%d), pcnt(%d), dcnt(%d)\n", qcnt, pcnt, dcnt);
-	npu_info("[npuQ] dir(0x%x), &queued_list(0x%p), &process_list(0x%p), &done_list(0x%p)\n",
+	npu_info("[npuQ] dir(0x%x), &queued_list(0x%pK), &process_list(0x%pK), &done_list(0x%pK)\n",
 			dir, &q->queued_list, &q->process_list, &q->done_list);
 
 	head = &q->queued_list;
 
 	for (pos = head->next ; pos != head ; pos = pos->next) {
-		npu_info("[npuQ] pos(0x%p)\n", pos);
-		npu_info("[npuQ] pos->prev(0x%p)\n", pos->prev);
-		npu_info("[npuQ] pos->next(0x%p)\n", pos->next);
+		npu_info("[npuQ] pos(0x%pK)\n", pos);
+		npu_info("[npuQ] pos->prev(0x%pK)\n", pos->prev);
+		npu_info("[npuQ] pos->next(0x%pK)\n", pos->next);
 	}
 
 	head = &q->process_list;
 
 	for (pos = head->next ; pos != head ; pos = pos->next) {
-		npu_info("[npuQ] pos(0x%p)\n", pos);
-		npu_info("[npuQ] pos->prev(0x%p)\n", pos->prev);
-		npu_info("[npuQ] pos->next(0x%p)\n", pos->next);
+		npu_info("[npuQ] pos(0x%pK)\n", pos);
+		npu_info("[npuQ] pos->prev(0x%pK)\n", pos->prev);
+		npu_info("[npuQ] pos->next(0x%pK)\n", pos->next);
 	}
 
 	head = &q->done_list;
 
 	for (pos = head->next ; pos != head ; pos = pos->next) {
-		npu_info("[npuQ] pos(0x%p)\n", pos);
-		npu_info("[npuQ] pos->prev(0x%p)\n", pos->prev);
-		npu_info("[npuQ] pos->next(0x%p)\n", pos->next);
+		npu_info("[npuQ] pos(0x%pK)\n", pos);
+		npu_info("[npuQ] pos->prev(0x%pK)\n", pos->prev);
+		npu_info("[npuQ] pos->next(0x%pK)\n", pos->next);
 	}
 	return;
 }

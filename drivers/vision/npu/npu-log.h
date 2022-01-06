@@ -85,6 +85,10 @@ extern struct npu_log	fw_report;
 /* Chunk size used in bitmap_scnprintf */
 #define CHUNKSZ                 32
 
+/* Log size used in memdump with memcpy */
+#define MEMLOGSIZE                             16
+
+
 /* Structure to represent ring buffer log storage */
 struct npu_ring_log_buffer {
 	u32			magic;
@@ -121,7 +125,9 @@ int bitmap_scnprintf(char *buf, unsigned int buflen, const unsigned long *maskp,
 int npu_debug_memdump8(u8 *start, u8 *end);
 int npu_debug_memdump16(u16 *start, u16 *end);
 int npu_debug_memdump32(u32 *start, u32 *end);
+int npu_debug_memdump32_by_memcpy(u32 *start, u32 *end);
 
+#define ISPRINTABLE(strValue)			(isascii(strValue) && isprint(strValue) ? strValue : '.')
 
 #define probe_info(fmt, ...)            pr_info("NPU:" fmt, ##__VA_ARGS__)
 #define probe_warn(fmt, args...)        pr_warn("NPU:[WRN]" fmt, ##args)
@@ -134,12 +140,12 @@ int npu_debug_memdump32(u32 *start, u32 *end);
 #define npu_log_on_lv_target(LV, PR_FUNC, fmt, ...)		\
 	do {	\
 		int __npu_ret = 0;	\
-		if ( npu_log.st_level <= (LV) )	\
+		if (npu_log.st_level <= (LV))	\
 			__npu_ret = npu_store_log((LV), fmt, ##__VA_ARGS__);	\
-		if ( __npu_ret )		\
+		if (__npu_ret)		\
 			pr_err(fmt, ##__VA_ARGS__);	\
 		else {			\
-			if ( npu_log.pr_level <= (LV) )		\
+			if (npu_log.pr_level <= (LV))		\
 				PR_FUNC(fmt, ##__VA_ARGS__);	\
 		}	\
 	} while (0)

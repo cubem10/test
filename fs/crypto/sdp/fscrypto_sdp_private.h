@@ -36,8 +36,9 @@
  * SDP Encryption context for inode
  */
 #define PKG_NAME_SIZE 16
-//#define SDP_DEK_SDP_ENABLED             0x00100000
+#define SDP_DEK_SDP_ENABLED             0x00100000
 #define SDP_DEK_IS_SENSITIVE            0x00200000
+#define SDP_DEK_IS_UNINITIALIZED        0x00400000
 //#define SDP_DEK_MULTI_ENGINE            0x00400000
 #define SDP_DEK_TO_SET_SENSITIVE        0x00800000
 #define SDP_DEK_TO_CONVERT_KEY_TYPE     0x01000000
@@ -66,6 +67,12 @@ struct fscrypt_sdp_context {
 extern int dek_is_locked(int engine_id);
 extern int dek_encrypt_dek_efs(int engine_id, dek_t *plainDek, dek_t *encDek);
 extern int dek_decrypt_dek_efs(int engine_id, dek_t *encDek, dek_t *plainDek);
+extern int dek_encrypt_fek(unsigned char *master_key, unsigned int master_key_len,
+					unsigned char *fek, unsigned int fek_len,
+					unsigned char *efek, unsigned int *efek_len);
+extern int dek_decrypt_fek(unsigned char *master_key, unsigned int master_key_len,
+					unsigned char *efek, unsigned int efek_len,
+					unsigned char *fek, unsigned int *fek_len);
 extern int fscrypt_sdp_get_engine_id(struct inode *inode);
 
 #ifndef IS_ENCRYPTED //Implemented from 4.14(Beyond)

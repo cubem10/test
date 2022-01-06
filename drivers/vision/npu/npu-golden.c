@@ -300,7 +300,7 @@ ok_exit:
 	case 0:
 		npu_info("success in load_golden_file: (%s, %luB length)\n",
 			 obj->file_name, obj->size);
-		npu_dbg("loaded file on (%p)\n", obj->img_vbuf);
+		npu_dbg("loaded file on (%pK)\n", obj->img_vbuf);
 		break;
 	default:
 		npu_err("fail(%d) in load_golden_file %s\n",
@@ -342,7 +342,7 @@ static int npu_golden_set_open(struct inode *inode, struct file *file)
 	BUG_ON(!file);
 	mutex_lock(&npu_golden_ctx.lock);
 
-	npu_info("start in npu_golden_set_open, npu_golden_ctx = @%p\n", &npu_golden_ctx);
+	npu_info("start in npu_golden_set_open, npu_golden_ctx = @%pK\n", &npu_golden_ctx);
 
 	/* Destroy last golden setting */
 	if (npu_golden_ctx.data.flags.valid) {
@@ -404,7 +404,7 @@ static int npu_golden_set_close(struct inode *inode, struct file *file)
 	list_for_each_entry(f, &npu_golden_ctx.data.file_list, list) {
 		ret = load_golden_file(f);
 		if (ret) {
-			npu_err("fail in load_golden_file on entry(%p).\n", f);
+			npu_err("fail in load_golden_file on entry(%pK).\n", f);
 			ret = -EFAULT;
 			goto err_exit;
 		}
@@ -690,7 +690,7 @@ static int set_golden_idx(const char ch, struct parse_buf *parse_buf)
 	golden_file->av_index = golden_idx;
 	list_add_tail(&golden_file->list, &npu_golden_ctx.data.file_list);
 
-	npu_dbg("adding new_golden_file entry: IDX(%d), Ptr(%p)\n",
+	npu_dbg("adding new_golden_file entry: IDX(%d), Ptr(%pK)\n",
 		golden_file->av_index, golden_file);
 
 	/* reset parse_buf */
@@ -718,7 +718,7 @@ static int set_golden_file(const char ch, struct parse_buf *parse_buf)
 	strncpy(golden_file->file_name, parse_buf->token_char, parse_buf->idx);
 	golden_file->file_name[parse_buf->idx] = '\0';
 
-	npu_dbg("golden file entry set: IDX(%d), filename(%s), Ptr(%p)\n",
+	npu_dbg("golden file entry set: IDX(%d), filename(%s), Ptr(%pK)\n",
 		golden_file->av_index, golden_file->file_name, golden_file);
 
 	/* reset parse_buf */
@@ -1030,31 +1030,31 @@ static int __npu_golden_compare(const struct npu_frame *frame)
 	session = frame->session;
 	ncp_header = (struct ncp_header *)(session->ncp_info.ncp_addr.vaddr);
 
-	npu_dbg("golden compare: starting with frame @ %p, result at %p\n [cur=%zu len=%zu cop=%zu]",
+	npu_dbg("golden compare: starting with frame @ %pK, result at %pK\n [cur=%zu len=%zu cop=%zu]",
 		 frame, result->out_buf, result->out_buf_cur, result->out_buf_len, result->copied_len);
 
 	if (!ncp_header) {
-		npu_err("not initialized in NCP header\n");
+		npu_uferr("not initialized in NCP header\n", frame);
 		return -EINVAL;
 	}
 	if (ncp_header->magic_number1 != NCP_MAGIC1) {
-		npu_err("NCP header magic mismatch: expected(0x%08x), actual(0x%08x).\n",
-			NCP_MAGIC1, ncp_header->magic_number1);
+		npu_uferr("NCP header magic mismatch: expected(0x%08x), actual(0x%08x).\n",
+			frame, NCP_MAGIC1, ncp_header->magic_number1);
 		return -EINVAL;
 	}
 
 	/* Check comparing condition */
 	if (npu_golden_ctx.data.flags.frame_id_matching) {
 		if (frame->frame_id != npu_golden_ctx.data.match.frame_id) {
-			npu_dbg("frame ID [frame:%u != Golden:%u] mismatch. skipping.\n",
-				frame->frame_id, npu_golden_ctx.data.match.frame_id);
+			npu_ufdbg("frame ID [frame:%u != Golden:%u] mismatch. skipping.\n",
+				frame, frame->frame_id, npu_golden_ctx.data.match.frame_id);
 			return 0;
 		}
 	}
 	if (npu_golden_ctx.data.flags.net_id_matching) {
 		if (ncp_header->net_id != npu_golden_ctx.data.match.net_id) {
-			npu_dbg("net ID [fFrame:%u != golden:%u] mismatch. skipping.\n",
-				ncp_header->net_id, npu_golden_ctx.data.match.net_id);
+			npu_ufdbg("net ID [fFrame:%u != golden:%u] mismatch. skipping.\n",
+				frame, ncp_header->net_id, npu_golden_ctx.data.match.net_id);
 			return 0;
 		}
 	}
@@ -1066,7 +1066,7 @@ static int __npu_golden_compare(const struct npu_frame *frame)
 	av_len = session->ncp_info.address_vector_cnt;
 
 	if (av_len <= 0) {
-		npu_err("Address vector table length [%u] is not properly initialized.\n", av_len);
+		npu_uferr("Address vector table length [%u] is not properly initialized.\n", frame, av_len);
 		return -EINVAL;
 	}
 
@@ -1110,14 +1110,14 @@ static int __npu_golden_compare(const struct npu_frame *frame)
 		dim_size = dim.axis1 * dim.axis2 * dim.axis3;
 
 		if (dim_size == 0 || dim_size != byte_size) {
-			npu_warn("golden matching: axis on MV(%lu x %lu x %lu) is invalid or does not match with size[%lu] -> Fall back to 1d comparison.\n",
-				dim.axis1, dim.axis2, dim.axis3, byte_size);
+			npu_ufwarn("Axis on MV(%lu x %lu x %lu) does not match with size[%lu] -> Use 1D comparison\n",
+				frame, dim.axis1, dim.axis2, dim.axis3, byte_size);
 			dim.axis1 = dim.axis2 = 1;
 			dim.axis3 = byte_size;
 		}
 
-		npu_dbg("av_index(%u), dim.axis1(%zu), dim.axis2(%zu), dim.axis3(%zu)\n",
-			golden_entry->av_index, dim.axis1, dim.axis2, dim.axis3);
+		npu_ufdbg("av_index(%u), dim.axis1(%zu), dim.axis2(%zu), dim.axis3(%zu)\n",
+			frame, golden_entry->av_index, dim.axis1, dim.axis2, dim.axis3);
 
 		add_compare_msg(&npu_golden_ctx.result, "%u: [%lu x %lu x %lu]:",
 				golden_entry->av_index,
@@ -1141,8 +1141,8 @@ static int __npu_golden_compare(const struct npu_frame *frame)
 		/* Cache invalidation */
 		__dma_map_area(target_entry->vaddr, target_entry->size, DMA_FROM_DEVICE);
 
-		npu_dbg("golden compare Golden[%p:%zuB] / Target[%p:%zuB]\n",
-			golden_entry->img_vbuf, golden_entry->size,
+		npu_ufdbg("golden compare Golden[%pK:%zuB] / Target[%pK:%zuB]\n",
+			frame, golden_entry->img_vbuf, golden_entry->size,
 			target_entry->vaddr, target_entry->size);
 		/* Finally, comparing contents */
 		if (npu_golden_ctx.data.comparator) {
@@ -1150,12 +1150,12 @@ static int __npu_golden_compare(const struct npu_frame *frame)
 					golden_entry->img_vbuf, target_entry->vaddr,
 					dim, result);
 			compare_result += ret;
-			npu_dbg("result of comparator for golden idx(%u): (%d)\n",
-				golden_entry->av_index, ret);
+			npu_ufdbg("result of comparator for golden idx(%u): (%d)\n",
+				frame, golden_entry->av_index, ret);
 
 		} else {
-			npu_dbg("no comparator defined for golden idx(%u). skipping data match.\n",
-				golden_entry->av_index);
+			npu_ufdbg("no comparator defined for golden idx(%u). skipping data match.\n",
+				frame, golden_entry->av_index);
 		}
 
 end_compare:
@@ -1171,7 +1171,7 @@ end_compare:
 
 	/* If the output buffer is full, left an message at the end of the buffer */
 	if (result->out_buf_cur == (result->out_buf_len - 1)) {
-		npu_dbg("full in output buffer, truncate the result.\n");
+		npu_ufdbg("full in output buffer, truncate the result.\n", frame);
 		/* Notify that the buffer is truncated */
 		tr_msg_len = strlen(TRUNCATE_MSG);
 		strncpy(&result->out_buf[NPU_GOLDEN_RESULT_BUF_LEN - tr_msg_len],
@@ -1188,7 +1188,7 @@ int npu_golden_compare(const struct npu_frame *frame)
 	int ret;
 
 	if (!atomic_read(&npu_golden_ctx.loaded)) {
-		npu_dbg("Golden is not configured.\n");
+		npu_uftrace("Golden is not configured.\n", frame);
 		return 0;
 	}
 

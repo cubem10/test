@@ -19,7 +19,7 @@
 const char *cisd_data_str[] = {
 	"RESET_ALG", "ALG_INDEX", "FULL_CNT", "CAP_MAX", "CAP_MIN", "RECHARGING_CNT", "VALERT_CNT",
 	"BATT_CYCLE", "WIRE_CNT", "WIRELESS_CNT", "HIGH_SWELLING_CNT", "LOW_SWELLING_CNT",
-	"SWELLING_CHARGING", "SWELLING_FULL_CNT", "SWELLING_RECOVERY_CNT", "AICL_CNT", "BATT_THM_MAX",
+	"WC_HIGH_SWELLING_CNT", "SWELLING_FULL_CNT", "SWELLING_RECOVERY_CNT", "AICL_CNT", "BATT_THM_MAX",
 	"BATT_THM_MIN", "CHG_THM_MAX", "CHG_THM_MIN", "WPC_THM_MAX", "WPC_THM_MIN", "USB_THM_MAX", "USB_THM_MIN",
 	"CHG_BATT_THM_MAX", "CHG_BATT_THM_MIN", "CHG_CHG_THM_MAX", "CHG_CHG_THM_MIN", "CHG_WPC_THM_MAX",
 	"CHG_WPC_THM_MIN", "CHG_USB_THM_MAX", "CHG_USB_THM_MIN", "USB_OVERHEAT_CHARGING", "UNSAFETY_VOLT",
@@ -28,8 +28,8 @@ const char *cisd_data_str[] = {
 };
 const char *cisd_data_str_d[] = {
 	"FULL_CNT_D", "CAP_MAX_D", "CAP_MIN_D", "RECHARGING_CNT_D", "VALERT_CNT_D", "WIRE_CNT_D", "WIRELESS_CNT_D",
-	"HIGH_SWELLING_CNT_D", "LOW_SWELLING_CNT_D", "SWELLING_CHARGING_D", "SWELLING_FULL_CNT_D",
-	"SWELLING_RECOVERY_CNT_D", "AICL_CNT_D", "BATT_THM_MAX_D",	"BATT_THM_MIN_D", "CHG_THM_MAX_D",
+	"HIGH_SWELLING_CNT_D", "LOW_SWELLING_CNT_D", "WC_HIGH_SWELLING_CNT_D", "SWELLING_FULL_CNT_D",
+	"SWELLING_RECOVERY_CNT_D", "AICL_CNT_D", "BATT_THM_MAX_D", "BATT_THM_MIN_D", "CHG_THM_MAX_D",
 	"CHG_THM_MIN_D", "WPC_THM_MAX_D", "WPC_THM_MIN_D", "USB_THM_MAX_D", "USB_THM_MIN_D",
 	"CHG_BATT_THM_MAX_D", "CHG_BATT_THM_MIN_D", "CHG_CHG_THM_MAX_D", "CHG_CHG_THM_MIN_D",
 	"CHG_WPC_THM_MAX_D", "CHG_WPC_THM_MIN_D", "CHG_USB_THM_MAX_D", "CHG_USB_THM_MIN_D",
@@ -37,7 +37,9 @@ const char *cisd_data_str_d[] = {
 	"VBAT_OVP_D", "USB_OVERHEAT_RAPID_CHANGE_D", "BUCK_OFF_D", "USB_OVERHEAT_ALONE_D", "DROP_SENSOR_D"
 };
 
-const char *cisd_cable_data_str[] = {"INDEX", "TA", "AFC", "AFC_FAIL", "QC", "QC_FAIL", "PD", "PD_HIGH"};
+const char *cisd_cable_data_str[] = {"TA", "AFC", "AFC_FAIL", "QC", "QC_FAIL", "PD", "PD_HIGH", "HV_WC_20"};
+const char *cisd_tx_data_str[] = {"ON", "OTHER", "GEAR", "PHONE", "BUDS"};
+const char *cisd_event_data_str[] = {"DC_ERR", "TA_OCP_DET", "TA_OCP_ON"};
 
 bool sec_bat_cisd_check(struct sec_battery_info *battery)
 {
@@ -252,7 +254,9 @@ void sec_battery_cisd_init(struct sec_battery_info *battery)
 
 	/* initialize pad data */
 	mutex_init(&battery->cisd.padlock);
+	mutex_init(&battery->cisd.powerlock);
 	init_cisd_pad_data(&battery->cisd);
+	init_cisd_power_data(&battery->cisd);
 }
 
 static struct pad_data* create_pad_data(unsigned int pad_id, unsigned int pad_count)
@@ -288,7 +292,7 @@ static void add_pad_data(struct cisd* cisd, unsigned int pad_id, unsigned int pa
 	struct pad_data* temp_data = cisd->pad_array->next;
 	struct pad_data* pad_data;
 
-	if (pad_id == 0 || pad_id >= MAX_PAD_ID)
+	if (pad_id >= MAX_PAD_ID)
 		return;
 
 	pad_data = create_pad_data(pad_id, pad_count);
@@ -364,6 +368,8 @@ void count_cisd_pad_data(struct cisd* cisd, unsigned int pad_id)
 static unsigned int convert_wc_index_to_pad_id(unsigned int wc_index)
 {
 	switch (wc_index) {
+	case WC_UNKNOWN:
+		return WC_PAD_ID_UNKNOWN;
 	case WC_SNGL_NOBLE:
 		return WC_PAD_ID_SNGL_NOBLE;
 	case WC_SNGL_VEHICLE:
@@ -452,5 +458,161 @@ void set_cisd_pad_data(struct sec_battery_info *battery, const char* buf)
 				add_pad_data(pcisd, pad_id, pad_count);
 			mutex_unlock(&pcisd->padlock);
 		}
+	}
+}
+
+static struct power_data* create_power_data(unsigned int power, unsigned int power_count)
+{
+	struct power_data* temp_data;
+
+	temp_data = kzalloc(sizeof(struct power_data), GFP_KERNEL);
+	if (temp_data == NULL)
+		return NULL;
+
+	temp_data->power = power;
+	temp_data->count = power_count;
+	temp_data->prev = temp_data->next = NULL;
+
+	return temp_data;
+}
+
+static struct power_data* find_data_by_power(struct cisd* cisd, unsigned int power)
+{
+	struct power_data* temp_data = cisd->power_array->next;
+
+	if (cisd->power_count <= 0 || temp_data == NULL)
+		return NULL;
+
+	while ((temp_data->power != power) &&
+		((temp_data = temp_data->next) != NULL));
+
+	return temp_data;
+}
+
+static void add_power_data(struct cisd* cisd, unsigned int power, unsigned int power_count)
+{
+	struct power_data* temp_data = cisd->power_array->next;
+	struct power_data* power_data;
+
+	power_data = create_power_data(power, power_count);
+	if (power_data == NULL)
+		return;
+
+	pr_info("%s: power(%d), count(%d)\n", __func__, power, power_count);
+	while (temp_data) {
+		if (temp_data->power > power) {
+			temp_data->prev->next = power_data;
+			power_data->prev = temp_data->prev;
+			power_data->next = temp_data;
+			temp_data->prev = power_data;
+			cisd->power_count++;
+			return;
+		}
+		temp_data = temp_data->next;
+	}
+
+	pr_info("%s: failed to add pad_data(%d, %d)\n",
+		__func__, power, power_count);
+	kfree(power_data);
+}
+
+void init_cisd_power_data(struct cisd* cisd)
+{
+	struct power_data* temp_data = cisd->power_array;
+
+	mutex_lock(&cisd->powerlock);
+	while (temp_data) {
+		struct power_data* next_data = temp_data->next;
+
+		kfree(temp_data);
+		temp_data = next_data;
+	}
+
+	/* create dummy data */
+	cisd->power_array = create_power_data(0, 0);
+	if (cisd->power_array == NULL)
+		goto err_create_dummy_data;
+	temp_data = create_power_data(MAX_CHARGER_POWER, 0);
+	if (temp_data == NULL) {
+		kfree(cisd->power_array);
+		cisd->power_array = NULL;
+		goto err_create_dummy_data;
+	}
+	cisd->power_count = 0;
+	cisd->power_array->next = temp_data;
+	temp_data->prev = cisd->power_array;
+
+err_create_dummy_data:
+	mutex_unlock(&cisd->powerlock);
+}
+
+#define FIND_MAX_POWER 45000
+#define FIND_POWER_STEP 10000
+#define POWER_MARGIN 1000
+void count_cisd_power_data(struct cisd* cisd, int power)
+{
+	struct power_data* power_data;
+	int power_index = 0;
+
+	pr_info("%s: power value : %d\n", __func__, power);
+	if (cisd->power_array == NULL || power < 15000) {
+		pr_info("%s: can't update the connected count of power(%d) because of null\n",
+			__func__, power);
+		return;
+	}
+
+	power_index = FIND_MAX_POWER;
+	while (power_index >= 14000) {
+		if (power + POWER_MARGIN - power_index >= 0) {
+			power_index /= 1000;
+			break;
+		}
+
+		power_index -= FIND_POWER_STEP;
+	}
+
+	mutex_lock(&cisd->powerlock);
+	if ((power_data = find_data_by_power(cisd, power_index)) != NULL)
+		power_data->count++;
+	else
+		add_power_data(cisd, power_index, 1);
+	mutex_unlock(&cisd->powerlock);
+}
+
+void set_cisd_power_data(struct sec_battery_info *battery, const char* buf)
+{
+	struct cisd* pcisd = &battery->cisd;
+	unsigned int power_total_count, power_id, power_count;
+	struct power_data* power_data;
+	int i, x;
+
+	pr_info("%s: %s\n", __func__, buf);
+	if (pcisd->power_count > 0)
+		init_cisd_power_data(pcisd);
+
+	if (pcisd->power_array == NULL) {
+		pr_info("%s: can't set the power data because of null\n", __func__);
+		return;
+	}
+
+	if (sscanf(buf, "%10d %n", &power_total_count, &x) <= 0)
+		return;
+
+	buf += (size_t)x;
+	pr_info("%s: add power data(count: %d)\n", __func__, power_total_count);
+	for (i = 0; i < power_total_count; i++) {
+		if (sscanf(buf, "%10d:%10d %n", &power_id, &power_count, &x) != 2) {
+			pr_info("%s: failed to read power data(%d, %d, %d)!!!re-init power data\n",
+				__func__, power_id, power_count, x);
+			init_cisd_power_data(pcisd);
+			break;
+		}
+		buf += (size_t)x;
+		mutex_lock(&pcisd->powerlock);
+		if ((power_data = find_data_by_power(pcisd, power_id)) != NULL)
+			power_data->count = power_count;
+		else
+			add_power_data(pcisd, power_id, power_count);
+		mutex_unlock(&pcisd->powerlock);
 	}
 }

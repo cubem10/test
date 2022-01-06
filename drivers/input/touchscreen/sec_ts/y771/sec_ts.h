@@ -242,6 +242,10 @@
 #define SEC_TS_READ_CALIBRATION_REPORT		0xF1
 #define SEC_TS_CMD_SET_VENDOR_EVENT_LEVEL	0xF2
 
+#define SEC_TS_CMD_SET_MISCAL_THD		0xA9
+#define SEC_TS_CMD_RUN_MISCAL			0xA7
+#define SEC_TS_CMD_GET_MISCAL_RESULT		0xA8
+
 #define SEC_TS_FLASH_SIZE_64		64
 #define SEC_TS_FLASH_SIZE_128		128
 #define SEC_TS_FLASH_SIZE_256		256
@@ -454,14 +458,6 @@ typedef enum {
 #define SEC_TS_MODE_SPONGE_SINGLE_TAP		(1 << 3)
 #define SEC_TS_MODE_SPONGE_PRESS		(1 << 4)
 #define SEC_TS_MODE_SPONGE_DOUBLETAP_TO_WAKEUP	(1 << 5)
-
-/*
- * support_feature
- * bit value should be made a promise with InputFramework.
- */
-#define INPUT_FEATURE_ENABLE_SETTINGS_AOT	(1 << 0) /* Double tap wakeup settings */
-#define INPUT_FEATURE_ENABLE_PRESSURE		(1 << 1) /* homekey pressure */
-#define INPUT_FEATURE_ENABLE_SYNC_RR120		(1 << 2) /* sync reportrate 120hz */
 
 enum sec_ts_cover_id {
 	SEC_TS_FLIP_WALLET = 0,
@@ -900,6 +896,7 @@ int sec_ts_fix_tmode(struct sec_ts_data *ts, u8 mode, u8 state);
 int sec_ts_release_tmode(struct sec_ts_data *ts);
 int sec_ts_set_custom_library(struct sec_ts_data *ts);
 int sec_ts_set_aod_rect(struct sec_ts_data *ts);
+int sec_ts_set_temp(struct sec_ts_data *ts);
 
 int sec_ts_check_custom_library(struct sec_ts_data *ts);
 int sec_ts_set_touch_function(struct sec_ts_data *ts);

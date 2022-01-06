@@ -215,7 +215,7 @@ void hex_key_dump(const char* tag, uint8_t *data, size_t data_len)
 	}
 	buf[buf_len - 1] = '\0';
 	printk(KERN_ERR
-		"[%s] %s(len=%d) : %s\n", "DEK_DBG", tag, data_len, buf);
+		"[%s] %s(len=%zu) : %s\n", "DEK_DBG", tag, data_len, buf);
 	kfree(buf);
 }
 #endif
@@ -617,6 +617,24 @@ static int dek_decrypt_dek(int engine_id, dek_t *encDek, dek_t *plainDek)
 int dek_decrypt_dek_efs(int engine_id, dek_t *encDek, dek_t *plainDek)
 {
 	return dek_decrypt_dek(engine_id, encDek, plainDek);
+}
+
+int dek_encrypt_fek(unsigned char *master_key, unsigned int master_key_len,
+					unsigned char *fek, unsigned int fek_len,
+					unsigned char *efek, unsigned int *efek_len)
+{
+	return dek_aes_encrypt_key_raw(master_key, master_key_len,
+								fek, fek_len,
+								efek, efek_len);
+}
+
+int dek_decrypt_fek(unsigned char *master_key, unsigned int master_key_len,
+					unsigned char *efek, unsigned int efek_len,
+					unsigned char *fek, unsigned int *fek_len)
+{
+	return dek_aes_decrypt_key_raw(master_key, master_key_len,
+								efek, efek_len,
+								fek, fek_len);
 }
 
 static int dek_on_boot(dek_arg_on_boot *evt)
@@ -1329,12 +1347,18 @@ void queue_log_work(struct work_struct *log_work)
 	} else {
 		DEK_LOGE("dek_add_to_log - failed to allocate buffer\n");
 	}
+
+	kfree(logStruct);
 }
 
 void dek_add_to_log(int engine_id, char *buffer)
 {
 	log_entry_t *temp = (log_entry_t *)kmalloc(sizeof(log_entry_t), GFP_ATOMIC);
 	int len;
+	if (!temp) {
+		DEK_LOGE("failed to allocate memory for log entry\n");
+		return;
+	}
 	temp->engineId = engine_id;
 	len = (strlen(buffer) > LOG_ENTRY_BUF_SIZE) ? (LOG_ENTRY_BUF_SIZE - 1) : strlen(buffer);
 	memcpy(temp->buffer, buffer, len);

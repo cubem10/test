@@ -73,8 +73,13 @@ int npu_sessionmgr_regID(struct npu_sessionmgr *sessionmgr, struct npu_session *
 			break;
 		}
 	}
+
+	if (index >= NPU_MAX_SESSION)
+		ret = -EINVAL;
+
 	mutex_unlock(&sessionmgr->mlock);
 	session->global_lock = &sessionmgr->mlock;
+
 	return ret;
 }
 

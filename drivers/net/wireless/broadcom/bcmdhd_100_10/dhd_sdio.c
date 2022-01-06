@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_sdio.c 794133 2018-12-12 06:31:21Z $
+ * $Id: dhd_sdio.c 800978 2019-01-24 09:10:30Z $
  */
 
 #include <typedefs.h>
@@ -697,6 +697,7 @@ static int dhd_serialconsole(dhd_bus_t *bus, bool get, bool enable, int *bcmerro
 
 #if defined(DHD_FW_COREDUMP)
 static int dhdsdio_mem_dump(dhd_bus_t *bus);
+static int dhdsdio_get_mem_dump(dhd_bus_t *bus);
 #endif /* DHD_FW_COREDUMP */
 static int dhdsdio_devcap_set(dhd_bus_t *bus, uint8 cap);
 static int dhdsdio_download_state(dhd_bus_t *bus, bool enter);
@@ -3678,21 +3679,32 @@ dhd_bus_mem_dump(dhd_pub_t *dhdp)
 	return dhdsdio_mem_dump(bus);
 }
 
-static int
-dhdsdio_mem_dump(dhd_bus_t *bus)
+int
+dhd_bus_get_mem_dump(dhd_pub_t *dhdp)
 {
-	int ret = 0;
-	int size;				/* Full mem size */
+	if (!dhdp) {
+		DHD_ERROR(("%s: dhdp is NULL\n", __FUNCTION__));
+		return BCME_ERROR;
+	}
+
+	return dhdsdio_get_mem_dump(dhdp->bus);
+}
+
+static int
+dhdsdio_get_mem_dump(dhd_bus_t *bus)
+{
+	int ret = BCME_ERROR;
+	int size = bus->ramsize;		/* Full mem size */
 	uint32 start = bus->dongle_ram_base;	/* Start address */
 	uint read_size = 0;			/* Read size of each iteration */
-	uint8 *buf = NULL, *databuf = NULL;
+	uint8 *p_buf = NULL, *databuf = NULL;
 
 	/* Get full mem size */
-	size = bus->ramsize;
-	buf = dhd_get_fwdump_buf(bus->dhd, size);
-	if (!buf) {
-		DHD_ERROR(("%s: Out of memory (%d bytes)\n", __FUNCTION__, size));
-		return -1;
+	p_buf = dhd_get_fwdump_buf(bus->dhd, size);
+	if (!p_buf) {
+		DHD_ERROR(("%s: Out of memory (%d bytes)\n",
+			__FUNCTION__, size));
+		return BCME_ERROR;
 	}
 
 	dhd_os_sdlock(bus->dhd);
@@ -3701,12 +3713,11 @@ dhdsdio_mem_dump(dhd_bus_t *bus)
 
 	/* Read mem content */
 	DHD_ERROR(("Dump dongle memory\n"));
-	databuf = buf;
-	while (size)
-	{
+	databuf = p_buf;
+	while (size) {
 		read_size = MIN(MEMBLOCK, size);
-		if ((ret = dhdsdio_membytes(bus, FALSE, start, databuf, read_size)))
-		{
+		ret = dhdsdio_membytes(bus, FALSE, start, databuf, read_size);
+		if (ret) {
 			DHD_ERROR(("%s: Error membytes %d\n", __FUNCTION__, ret));
 			ret = BCME_ERROR;
 			break;
@@ -3725,10 +3736,31 @@ dhdsdio_mem_dump(dhd_bus_t *bus)
 
 	dhd_os_sdunlock(bus->dhd);
 
-	/* schedule a work queue to perform actual memdump. dhd_mem_dump() performs the job */
-	if (!ret) {
-		/* buf, actually soc_ram free handled in dhd_{free,clear} */
-		dhd_schedule_memdump(bus->dhd, buf, bus->ramsize);
+	return ret;
+}
+
+static int
+dhdsdio_mem_dump(dhd_bus_t *bus)
+{
+	dhd_pub_t *dhdp;
+	int ret = BCME_ERROR;
+
+	dhdp = bus->dhd;
+	if (!dhdp) {
+		DHD_ERROR(("%s: dhdp is NULL\n", __FUNCTION__));
+		return ret;
+	}
+
+	ret = dhdsdio_get_mem_dump(bus);
+	if (ret) {
+		DHD_ERROR(("%s: failed to get mem dump, err=%d\n",
+			__FUNCTION__, ret));
+	} else {
+		/* schedule a work queue to perform actual memdump.
+		 * dhd_mem_dump() performs the job
+		 */
+		dhd_schedule_memdump(dhdp, dhdp->soc_ram, dhdp->soc_ram_length);
+		/* soc_ram free handled in dhd_{free,clear} */
 	}
 
 	return ret;

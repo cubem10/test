@@ -136,6 +136,8 @@ int kbase_hwaccess_pm_early_init(struct kbase_device *kbdev)
 	kbdev->pm.backend.ca_cores_enabled = ~0ull;
 	kbdev->pm.backend.gpu_powered = false;
 	kbdev->pm.suspending = false;
+	/* MALI_SEC_INTEGRATION */
+	init_waitqueue_head(&kbdev->pm.suspending_wait);
 
 #ifdef CONFIG_MALI_DEBUG
 	kbdev->pm.backend.driver_ready_for_irqs = false;
@@ -564,6 +566,8 @@ void kbase_hwaccess_pm_resume(struct kbase_device *kbdev)
 
 	kbdev->pm.suspending = false;
 	kbase_pm_do_poweron(kbdev, true);
+	/* MALI_SEC_INTEGRATION */
+	wake_up(&kbdev->pm.suspending_wait);
 
 	kbase_backend_timer_resume(kbdev);
 

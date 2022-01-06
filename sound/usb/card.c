@@ -584,6 +584,7 @@ static int usb_audio_probe(struct usb_interface *intf,
 			exynos_usb_audio_hcd(dev);
 			exynos_usb_audio_desc(dev);
 			exynos_usb_audio_map_buf(dev);
+			usb_audio->is_audio = 1;
 		}
 	}
 		dev_info(&dev->dev, "usb_host : %s abox set done\n", __func__);
@@ -673,13 +674,18 @@ static int usb_audio_probe(struct usb_interface *intf,
 		usb_enable_autosuspend(dev);
 	dev_info(&dev->dev, "usb_host : %s done \n", __func__);
 
+	pr_info("%s done\n", __func__);
+
 	return 0;
 
  __error:
 	if (chip) {
+		/* chip->active is inside the chip->card object,
+		 * decrement before memory is possibly returned.
+		 */
+		atomic_dec(&chip->active);
 		if (!chip->num_interfaces)
 			snd_card_free(chip->card);
-		atomic_dec(&chip->active);
 	}
 	mutex_unlock(&register_mutex);
 	return err;

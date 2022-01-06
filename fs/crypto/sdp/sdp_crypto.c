@@ -15,7 +15,9 @@
  *  along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <crypto/hash.h>
 #include <crypto/rng.h>
+#include <crypto/sha.h>
 #include <keys/encrypted-type.h>
 #include <keys/user-type.h>
 #include <linux/delay.h>
@@ -40,8 +42,8 @@ int __init sdp_crypto_init(void)
 /* Codes are extracted from fs/crypto/crypto_sec.c */
 #ifdef CONFIG_CRYPTO_FIPS
 static struct crypto_rng *sdp_crypto_rng = NULL;
-
 #endif
+static struct crypto_shash *sha512_tfm = NULL;
 
 static int sdp_crypto_init_rng(void)
 {
@@ -124,10 +126,10 @@ out:
 	// save rng on global variable
 	sdp_crypto_rng = rng;
 	return res;
-}
 #else
 	return 0;
 #endif
+}
 
 int sdp_crypto_generate_key(void *raw_key, int nbytes)
 {
@@ -176,9 +178,47 @@ static void sdp_crypto_exit_rng(void)
 #endif
 }
 
+static void __exit sdp_crypto_exit_sha512(void)
+{
+	crypto_free_shash(sha512_tfm);
+	sha512_tfm = NULL;
+}
+
 void __exit sdp_crypto_exit(void)
 {
 	sdp_crypto_exit_rng();
+	sdp_crypto_exit_sha512();
+}
+
+int sdp_crypto_hash_sha512(const u8 *data, u32 data_len, u8 *hashed)
+{
+	struct crypto_shash *tfm = READ_ONCE(sha512_tfm);
+
+	/* init hash transform on demand */
+	if (unlikely(!tfm)) {
+		struct crypto_shash *prev_tfm;
+
+		tfm = crypto_alloc_shash("sha512", 0, 0);
+		if (IS_ERR(tfm)) {
+			printk(KERN_ERR
+				"sdp_crypto_sha512: error allocating SHA-512 transform: %ld",
+				PTR_ERR(tfm));
+			return PTR_ERR(tfm);
+		}
+		prev_tfm = cmpxchg(&sha512_tfm, NULL, tfm);
+		if (prev_tfm) {
+			crypto_free_shash(tfm);
+			tfm = prev_tfm;
+		}
+	}
+
+	{
+		SHASH_DESC_ON_STACK(desc, tfm);
+		desc->tfm = tfm;
+		desc->flags = 0;
+
+		return crypto_shash_digest(desc, data, data_len, hashed);
+	}
 }
 
 int sdp_crypto_aes_gcm_encrypt(struct crypto_aead *tfm,

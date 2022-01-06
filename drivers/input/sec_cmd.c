@@ -102,7 +102,7 @@ static ssize_t sec_cmd_store(struct device *dev,
 		return -EINVAL;
 	}
 
-	if (strlen(buf) >= SEC_CMD_STR_LEN) {
+	if (strnlen(buf, SEC_CMD_STR_LEN) >= SEC_CMD_STR_LEN) {
 		pr_err("%s %s: cmd length(strlen(buf)) is over (%d,%s)!!\n",
 				SECLOG, __func__, (int)strlen(buf), buf);
 		return -EINVAL;
@@ -230,6 +230,9 @@ static void sec_cmd_store_function(struct sec_cmd_data *data)
 	} else {
 		pr_err("%s %s: left cmd is nothing\n", SECLOG, __func__);
 		mutex_unlock(&data->fifo_lock);
+		mutex_lock(&data->cmd_lock);
+		data->cmd_is_running = false;
+		mutex_unlock(&data->cmd_lock);
 		return;
 	}
 	mutex_unlock(&data->fifo_lock);
@@ -336,7 +339,7 @@ static ssize_t sec_cmd_store(struct device *dev, struct device_attribute *devatt
 		return -EINVAL;
 	}
 
-	if (strlen(buf) >= SEC_CMD_STR_LEN) {
+	if (strnlen(buf, SEC_CMD_STR_LEN) >= SEC_CMD_STR_LEN) {
 		pr_err("%s %s: cmd length(strlen(buf)) is over (%d,%s)!!\n",
 				SECLOG, __func__, (int)strlen(buf), buf);
 		return -EINVAL;
@@ -403,6 +406,7 @@ static ssize_t sec_cmd_store(struct device *dev, struct device_attribute *devatt
 	}
 	mutex_unlock(&data->fifo_lock);
 
+	mutex_lock(&data->fs_lock);
 	/* check lock   */
 	mutex_lock(&data->cmd_lock);
 	data->cmd_is_running = true;
@@ -411,6 +415,7 @@ static ssize_t sec_cmd_store(struct device *dev, struct device_attribute *devatt
 	data->cmd_state = SEC_CMD_STATUS_RUNNING;
 	sec_cmd_store_function(data);
 
+	mutex_unlock(&data->fs_lock);
 	return count;
 }
 #endif
@@ -578,6 +583,7 @@ int sec_cmd_init(struct sec_cmd_data *data, struct sec_cmd *cmds,
 	}
 
 	mutex_init(&data->cmd_lock);
+	mutex_init(&data->fs_lock);
 
 	mutex_lock(&data->cmd_lock);
 	data->cmd_is_running = false;
@@ -603,12 +609,15 @@ int sec_cmd_init(struct sec_cmd_data *data, struct sec_cmd *cmds,
 	} else if (devt == SEC_CLASS_DEVT_WACOM) {
 		dev_name = SEC_CLASS_DEV_NAME_WACOM;
 
+	} else if (devt == SEC_CLASS_DEVT_SIDEKEY) {
+		dev_name = SEC_CLASS_DEV_NAME_SIDEKEY;
+
 	} else {
 		pr_err("%s %s: not defined devt=%d\n", SECLOG, __func__, devt);
 		goto err_get_dev_name;
 	}
 
-#ifdef CONFIG_SEC_SYSFS
+#ifdef CONFIG_DRV_SAMSUNG
 	data->fac_dev = sec_device_create(data, dev_name);
 #else
 	data->fac_dev = device_create(sec_class, NULL, devt, data, dev_name);
@@ -629,7 +638,7 @@ int sec_cmd_init(struct sec_cmd_data *data, struct sec_cmd *cmds,
 	return 0;
 
 err_sysfs_group:
-#ifdef CONFIG_SEC_SYSFS
+#ifdef CONFIG_DRV_SAMSUNG
 	sec_device_destroy(data->fac_dev->devt);
 #else
 	device_destroy(sec_class, devt);
@@ -656,7 +665,7 @@ void sec_cmd_exit(struct sec_cmd_data *data, int devt)
 	pr_info("%s %s", SECLOG, __func__);
 	sysfs_remove_group(&data->fac_dev->kobj, &sec_fac_attr_group);
 	dev_set_drvdata(data->fac_dev, NULL);
-#ifdef CONFIG_SEC_SYSFS
+#ifdef CONFIG_DRV_SAMSUNG
 	sec_device_destroy(data->fac_dev->devt);
 #else
 	device_destroy(sec_class, devt);

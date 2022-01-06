@@ -190,6 +190,9 @@ static inline void dd_dump_benchmark(struct dd_benchmark_result *bm_result) {
 #else
 int dd_add_master_key(int userid, void *key, int len);
 void dd_evict_master_key(int userid);
+#ifdef CONFIG_SDP_KEY_DUMP
+int dd_dump_key(int userid, int fd);
+#endif
 #endif
 int get_dd_master_key(int userid, void *key);
 
@@ -199,8 +202,10 @@ int dd_sec_crypt_page(struct dd_info *info, dd_crypto_direction_t rw,
 		struct page *src_page, struct page *dst_page);
 
 int dd_read_crypt_context(struct inode *inode, struct dd_crypt_context *crypt_context);
-int dd_write_crypt_context(struct inode *inode, const struct dd_crypt_context *context);
+int dd_write_crypt_context(struct inode *inode, const struct dd_crypt_context *context, void *fs_data);
 int dd_read_crypto_metadata(struct inode *inode, const char *name, void *buffer, size_t buffer_size);
 int dd_write_crypto_metadata(struct inode *inode, const char *name, const void *buffer, size_t len);
+
+void dd_hex_key_dump(const char* tag, uint8_t *data, size_t data_len);
 
 #endif /* SECURITY_SDP_DD_COMMON_H_ */

@@ -55,6 +55,8 @@
 
 #define NUM_MPEG4_LF_BUF	2
 
+#define FRAME_RATE_RESOLUTION	1000
+
 #define DEFAULT_TAG		(0xE05)
 
 #define MFC_NO_INSTANCE_SET	-1
@@ -145,6 +147,7 @@
 #define CODEC_422FORMAT(ctx)	(IS_HEVC_DEC(ctx) || IS_HEVC_ENC(ctx) ||	\
 				IS_VP9_DEC(ctx) || IS_VP9_ENC(ctx) ||		\
 				IS_BPG_DEC(ctx) || IS_BPG_ENC(ctx))
+#define CODEC_HIGH_PERF(ctx)	(IS_H264_DEC(ctx) || IS_H264_MVC_DEC(ctx) || IS_HEVC_DEC(ctx))
 #define ON_RES_CHANGE(ctx)	(((ctx)->state >= MFCINST_RES_CHANGE_INIT) &&	\
 				 ((ctx)->state <= MFCINST_RES_CHANGE_END))
 
@@ -181,6 +184,7 @@
 #define	ENC_SET_STATIC_INFO		(1 << 11)
 #define	ENC_SET_HDR10_PLUS		(1 << 12)
 #define	ENC_SET_VP9_PROFILE_LEVEL	(1 << 13)
+#define	ENC_SET_DROP_CONTROL		(1 << 14)
 
 #define MFC_VER_MAJOR(dev)	((dev->pdata->ip_ver >> 8) & 0xFF)
 #define MFC_VER_MINOR(dev)	(dev->pdata->ip_ver & 0xFF)

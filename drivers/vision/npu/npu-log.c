@@ -41,9 +41,9 @@ struct npu_log npu_log = {
 };
 
 /*
-	In fw_report, some var(line_cnt) will be used with another purpose.
-	this var will be used finish line when write pointer circled to start line.
-	So, buffer in file object does not know about ...
+*	In fw_report, some var(line_cnt) will be used with another purpose.
+*	this var will be used finish line when write pointer circled to start line.
+*	So, buffer in file object does not know about ...
 */
 struct npu_log fw_report = {
 	.st_buf = NULL,
@@ -67,19 +67,51 @@ const char LOG_LEVEL_MARK[NPU_LOG_INVALID] = {
 };
 
 /*
+ * ISR-aware spin lock for log implementation
+ *
+ * returns 0 if locking is successful.
+ *  - Case 1 : Current context is not interrupt. and spin_lock() was successful.
+ *  - Case 2 : Current context is interrupt. and spin_trylock() was successful.
+ * returns -EINTR if
+ *  - Current context is interrupt, and spin_trylock() returns zero
+ *    (i.e. spin_lock is currently held)
+ *    Caller should not access shared resource in this case
+ */
+static inline int spin_lock_safe_isr(spinlock_t *lock)
+{
+	int	ret;
+
+	if (unlikely(in_interrupt())) {
+		ret = spin_trylock(lock);
+		if (ret == 0)
+			return -EINTR;
+	} else {
+		spin_lock(lock);
+	}
+	return 0;
+}
+
+/*
  * 0 : log success
  * != 0 : Failure
  */
 int npu_store_log(npu_log_level_e loglevel, const char *fmt, ...)
 {
-	size_t		ret;
+	int		ret;
+	size_t		pr_size;
 	size_t		wr_len = 0;
 	size_t		remain;
-	unsigned long	intr_flags;
 	va_list		arg_ptr;
 	char		*buf;
 
-	spin_lock_irqsave(&npu_log_lock, intr_flags);
+	/*
+	 * Do not use store log on interrupt context, because it requires
+	 * use of spin_lock_irqsave() which lowers system's responsiveness
+	 * (The message will be forwarded to pr_XXXX macro instead)
+	 */
+	ret = spin_lock_safe_isr(&npu_log_lock);
+	if (ret)
+		goto imm_exit;
 
 	remain = npu_log.st_size - npu_log.wr_pos;
 	buf = npu_log.st_buf + npu_log.wr_pos;
@@ -112,40 +144,40 @@ retry:
 
 start:
 	if ((npu_log.line_cnt & NPU_STORE_LOG_SYNC_MARK_INTERVAL_MASK) == 0) {
-		ret = scnprintf(buf + wr_len, remain, NPU_STORE_LOG_SYNC_MARK_MSG, npu_log.line_cnt);
-		if (unlikely(ret < 0)) {
+		pr_size = scnprintf(buf + wr_len, remain, NPU_STORE_LOG_SYNC_MARK_MSG, npu_log.line_cnt);
+		if (unlikely(pr_size < 0)) {
 			ret = -EFAULT;
 			goto err_exit;
 		}
-		remain -= ret;
-		wr_len += ret;
-		if ((remain <= 1) || (ret == 0)) {		/* Underflow on 'remain -= ret' */
+		remain -= pr_size;
+		wr_len += pr_size;
+		if ((remain <= 1) || (pr_size == 0)) {		/* Underflow on 'remain -= pr_size' */
 			goto retry;
 		}
 	}
 
-	ret = scnprintf(buf + wr_len, remain, "%016llu;%c;"
+	pr_size = scnprintf(buf + wr_len, remain, "%016llu;%c;"
 		, sched_clock(), LOG_LEVEL_MARK[loglevel]);
-	if (unlikely(ret < 0)) {
+	if (unlikely(pr_size < 0)) {
 		ret = -EFAULT;
 		goto err_exit;
 	}
-	remain -= ret;
-	wr_len += ret;
-	if ((remain <= 1) || (ret == 0)) {		/* Underflow on 'remain -= ret' */
+	remain -= pr_size;
+	wr_len += pr_size;
+	if ((remain <= 1) || (pr_size == 0)) {		/* Underflow on 'remain -= pr_size' */
 		goto retry;
 	}
 
 	va_start(arg_ptr, fmt);
-	ret = vscnprintf(buf + wr_len, remain, fmt, arg_ptr);
+	pr_size = vscnprintf(buf + wr_len, remain, fmt, arg_ptr);
 	va_end(arg_ptr);
-	if (unlikely(ret < 0)) {
+	if (unlikely(pr_size < 0)) {
 		ret = -EFAULT;
 		goto err_exit;
 	}
-	remain -= ret;
-	wr_len += ret;
-	if ((remain <= 1) || (ret == 0)) {		/* Underflow on 'remain -= ret' */
+	remain -= pr_size;
+	wr_len += pr_size;
+	if ((remain <= 1) || (pr_size == 0)) {		/* Underflow on 'remain -= pr_size' */
 		goto retry;
 	}
 
@@ -157,36 +189,35 @@ start:
 	goto unlock_exit;
 
 err_exit:
-	pr_err("Log store error : remain: %zu wr_len: %zu ret :%zu\n");
+	pr_err("Log store error : remain: %zu wr_len: %zu pr_size : %zu ret :%d\n",
+		remain, wr_len, pr_size, ret);
 
 unlock_exit:
-	spin_unlock_irqrestore(&npu_log_lock, intr_flags);
+	spin_unlock(&npu_log_lock);
 
+imm_exit:
 	return ret;
 }
 
 void npu_store_log_init(char *buf_addr, const size_t size)
 {
-	unsigned long	intr_flags;
-
 	BUG_ON(!buf_addr);
 	BUG_ON(size < PAGE_SIZE);
 
-	spin_lock_irqsave(&npu_log_lock, intr_flags);
+	spin_lock(&npu_log_lock);
+
 	npu_log.st_buf = buf_addr;
 	buf_addr[0] = '\0';
 	buf_addr[size - 1] = '\0';
 	npu_log.st_size = size;
 	npu_log.wr_pos = 0;
-	spin_unlock_irqrestore(&npu_log_lock, intr_flags);
+	spin_unlock(&npu_log_lock);
 
-	npu_info("Store log memory initialized : %p[Len = %zu]\n", buf_addr, size);
+	npu_info("Store log memory initialized : %pK[Len = %zu]\n", buf_addr, size);
 }
 
 void npu_store_log_deinit(void)
 {
-	unsigned long	intr_flags;
-
 	/* Wake-up readers and preserve some time to flush */
 	wake_up_all(&npu_log.wq);
 
@@ -196,8 +227,8 @@ void npu_store_log_deinit(void)
 		msleep(NPU_STORE_LOG_FLUSH_INTERVAL_MS);
 	}
 
-	npu_info("Store log memory deinitializing : %p -> NULL\n", npu_log.st_buf);
-	spin_lock_irqsave(&npu_log_lock, intr_flags);
+	npu_info("Store log memory deinitializing : %pK -> NULL\n", npu_log.st_buf);
+	spin_lock(&npu_log_lock);
 	npu_log.st_buf = NULL;
 	npu_log.st_size = 0;
 	npu_log.wr_pos = 0;
@@ -206,12 +237,13 @@ void npu_store_log_deinit(void)
 	 * but they will not reduce counter if current value is zero.
 	 */
 	atomic_set(&npu_log.fs_ref, 0);
-	spin_unlock_irqrestore(&npu_log_lock, intr_flags);
+	spin_unlock(&npu_log_lock);
 }
 
 void npu_fw_report_init(char *buf_addr, const size_t size)
 {
 	unsigned long	intr_flags;
+
 	BUG_ON(!buf_addr);
 	BUG_ON(size < PAGE_SIZE);
 
@@ -235,7 +267,7 @@ void npu_fw_report_deinit(void)
 	wake_up_all(&fw_report.wq);
 	msleep(NPU_STORE_LOG_FLUSH_INTERVAL_MS);
 
-	npu_info("fw_report memory deinitializing : %p -> NULL\n", fw_report.st_buf);
+	npu_info("fw_report memory deinitializing : %pK -> NULL\n", fw_report.st_buf);
 	spin_lock_irqsave(&fw_report_lock, intr_flags);
 	fw_report.st_buf = NULL;
 	fw_report.st_size = 0;
@@ -258,11 +290,13 @@ struct npu_store_log_read_obj {
  */
 static void npu_store_log_set_offset(struct npu_store_log_read_obj *robj, ssize_t offset)
 {
-	unsigned long			intr_flags;
-	ssize_t new_rpos;
-	ssize_t wr_pos, st_size, last_dump_mark_pos;
+	int	ret;
+	ssize_t	new_rpos;
+	ssize_t	wr_pos, st_size, last_dump_mark_pos;
 
-	spin_lock_irqsave(&npu_log_lock, intr_flags);
+	ret = spin_lock_safe_isr(&npu_log_lock);
+	if (ret)
+		goto imm_exit;
 
 	st_size = npu_log.st_size;
 	wr_pos = npu_log.wr_pos;
@@ -301,7 +335,10 @@ static void npu_store_log_set_offset(struct npu_store_log_read_obj *robj, ssize_
 unlock_exit:
 	BUG_ON(new_rpos < 0);
 	robj->read_pos = (size_t)new_rpos;
-	spin_unlock_irqrestore(&npu_log_lock, intr_flags);
+	spin_unlock(&npu_log_lock);
+
+imm_exit:
+	return;
 }
 
 static int npu_store_log_fops_open(struct inode *inode, struct file *file)
@@ -325,7 +362,7 @@ static int npu_store_log_fops_open(struct inode *inode, struct file *file)
 
 	npu_store_log_set_offset(robj, 0);
 
-	npu_info("fd open robj @ %p\n", robj);
+	npu_info("fd open robj @ %pK\n", robj);
 	return 0;
 
 err_exit:
@@ -348,7 +385,7 @@ static int npu_fw_report_fops_open(struct inode *inode, struct file *file)
 	/* TODO: It would be more useful if read_pos can start from circular queue tail */
 	file->private_data = robj;
 
-	npu_info("fd open robj @ %p\n", robj);
+	npu_info("fd open robj @ %pK\n", robj);
 	return 0;
 
 err_exit:
@@ -365,7 +402,7 @@ static int npu_fw_report_fops_close(struct inode *inode, struct file *file)
 	BUG_ON(!robj);
 	BUG_ON(robj->magic != READ_OBJ_MAGIC);
 
-	npu_info("fd close robj @ %p\n", robj);
+	npu_info("fd close robj @ %pK\n", robj);
 	kfree(robj);
 
 	return 0;
@@ -384,7 +421,7 @@ static int npu_store_log_fops_close(struct inode *inode, struct file *file)
 	/* Decrease reference counter */
 	atomic_dec_if_positive(&npu_log.fs_ref);
 
-	npu_info("fd close robj @ %p\n", robj);
+	npu_info("fd close robj @ %pK\n", robj);
 	kfree(robj);
 
 	return 0;
@@ -414,7 +451,7 @@ static ssize_t __npu_store_log_fops_read(struct npu_store_log_read_obj *robj, ch
 		npu_log.st_buf[npu_log.last_dump_mark_pos] = NPU_LOG_DUMP_MARK;
 	}
 
-	pr_debug("Buf = %p, Read pos = %zu, Read len = %zu\n", npu_log.st_buf, robj->read_pos, copy_len);
+	pr_debug("Buf = %pK, Read pos = %zu, Read len = %zu\n", npu_log.st_buf, robj->read_pos, copy_len);
 
 	return copy_len;
 }
@@ -425,7 +462,6 @@ static ssize_t npu_store_log_fops_read(struct file *file, char __user *outbuf, s
 	ssize_t				ret, copy_len;
 	size_t				tmp_buf_len;
 	char				*tmp_buf = NULL;
-	unsigned long			intr_flags;
 
 	BUG_ON(!file);
 	robj = file->private_data;
@@ -452,9 +488,12 @@ static ssize_t npu_store_log_fops_read(struct file *file, char __user *outbuf, s
 	}
 
 
-	spin_lock_irqsave(&npu_log_lock, intr_flags);
+	ret = spin_lock_safe_isr(&npu_log_lock);
+	if (ret)
+		goto err_exit;
+
 	copy_len = __npu_store_log_fops_read(robj, tmp_buf, tmp_buf_len);
-	spin_unlock_irqrestore(&npu_log_lock, intr_flags);
+	spin_unlock(&npu_log_lock);
 
 	if (copy_len > 0) {
 		ret = copy_to_user(outbuf, tmp_buf, copy_len);
@@ -603,7 +642,7 @@ static int npu_store_log_dump(const size_t dump_size)
 	struct npu_store_log_read_obj	dump_robj;
 	size_t				rd, total, pos;
 	char				*st;
-	unsigned long			intr_flags;
+	int				ret;
 
 	/* waitq initialization is not necessary */
 	memset(&dump_robj, 0, sizeof(dump_robj));
@@ -617,7 +656,12 @@ static int npu_store_log_dump(const size_t dump_size)
 
 	/* Read log */
 	total = 0;
-	spin_lock_irqsave(&npu_log_lock, intr_flags);
+	ret = spin_lock_safe_isr(&npu_log_lock);
+	if (ret) {
+		pr_err("NPU log dump is not available - in interrupt context\n", total);
+		goto err_exit;
+	}
+
 	if (npu_log.line_cnt == npu_log.last_dump_line_cnt + 1) {
 		/* No need to print out because already dumped */
 		total = 0;
@@ -630,9 +674,12 @@ static int npu_store_log_dump(const size_t dump_size)
 		}
 	}
 	npu_log.last_dump_line_cnt = npu_log.line_cnt;
-	spin_unlock_irqrestore(&npu_log_lock, intr_flags);
+	spin_unlock(&npu_log_lock);
 
 	if (total > 0) {
+		/* Print stack back trace - Printed if there is a log to print to avoid duplication */
+		//dump_stack();// removed for kernel pointer leakage issue
+
 		pos = 0;
 		st = dump_buf;
 		pr_err("---------- Start NPU log dump (len = %zu) ---------------\n", total);
@@ -652,6 +699,8 @@ static int npu_store_log_dump(const size_t dump_size)
 		}
 		pr_cont("---------- End of NPU log dump ---------------\n");
 	}
+
+err_exit:
 
 	kfree(dump_buf);
 	return 0;
@@ -728,7 +777,7 @@ int npu_debug_memdump8(u8 *start, u8 *end)
 	offset = 0;
 
 	memset(sentence, 0, sizeof(sentence));
-	snprintf(sentence, sizeof(sentence), "[V] Memory Dump8(%p ~ %p)", start, end);
+	snprintf(sentence, sizeof(sentence), "[V] Memory Dump8(%pK ~ %pK)", start, end);
 
 	while (cur < end) {
 		if ((items % 16) == 0) {
@@ -738,7 +787,7 @@ int npu_debug_memdump8(u8 *start, u8 *end)
 			printk(KERN_INFO "%s\n", sentence);
 #endif
 			offset = 0;
-			snprintf(term, sizeof(term), "[V] %p:      ", cur);
+			snprintf(term, sizeof(term), "[V] %pK:      ", cur);
 			snprintf(&sentence[offset], sizeof(sentence) - offset, "%s", term);
 			offset += strlen(term);
 			items = 0;
@@ -778,7 +827,7 @@ int npu_debug_memdump16(u16 *start, u16 *end)
 	offset = 0;
 
 	memset(sentence, 0, sizeof(sentence));
-	snprintf(sentence, sizeof(sentence), "[V] Memory Dump16(%p ~ %p)", start, end);
+	snprintf(sentence, sizeof(sentence), "[V] Memory Dump16(%pK ~ %pK)", start, end);
 
 	while (cur < end) {
 		if ((items % 16) == 0) {
@@ -788,7 +837,7 @@ int npu_debug_memdump16(u16 *start, u16 *end)
 			printk(KERN_INFO "%s\n", sentence);
 #endif
 			offset = 0;
-			snprintf(term, sizeof(term), "[V] %p:      ", cur);
+			snprintf(term, sizeof(term), "[V] %pK:      ", cur);
 			snprintf(&sentence[offset], sizeof(sentence) - offset, "%s", term);
 			offset += strlen(term);
 			items = 0;
@@ -827,7 +876,7 @@ int npu_debug_memdump32(u32 *start, u32 *end)
 	offset = 0;
 
 	memset(sentence, 0, sizeof(sentence));
-	snprintf(sentence, sizeof(sentence), "[V] Memory Dump32(%p ~ %p)", start, end);
+	snprintf(sentence, sizeof(sentence), "[V] Memory Dump32(%pK ~ %pK)", start, end);
 
 	while (cur < end) {
 		if ((items % 8) == 0) {
@@ -837,7 +886,7 @@ int npu_debug_memdump32(u32 *start, u32 *end)
 			printk(KERN_INFO "%s\n", sentence);
 #endif
 			offset = 0;
-			snprintf(term, sizeof(term), "[V] %p:      ", cur);
+			snprintf(term, sizeof(term), "[V] %pK:      ", cur);
 			snprintf(&sentence[offset], sizeof(sentence) - offset, "%s", term);
 			offset += strlen(term);
 			items = 0;
@@ -862,6 +911,58 @@ int npu_debug_memdump32(u32 *start, u32 *end)
 
 	return ret;
 }
+
+/*
+       This function could be used when direct access to SRAM is not approved.
+*/
+int npu_debug_memdump32_by_memcpy(u32 *start, u32 *end)
+{
+	int j, k, l;
+	int ret = 0;
+	u32 items;
+	u32 *cur;
+	char term[4], strHexa[128], strString[128], sentence[256];
+
+	cur = start;
+	items = 0;
+	j = k = l = 0;
+
+	memset(sentence, 0, sizeof(sentence));
+	memset(strString, 0, sizeof(strString));
+	memset(strHexa, 0, sizeof(strHexa));
+	j = sprintf(sentence, "[V] Memory Dump32(%pK ~ %pK)", start, end);
+	while (cur < end) {
+		if ((items % 4) == 0) {
+			j += sprintf(sentence + j, "%s   %s", strHexa, strString);
+#ifdef DEBUG_LOG_MEMORY
+			pr_debug("%s\n", sentence);
+#else
+			pr_info("%s\n", sentence);
+#endif
+			j = 0; items = 0; k = 0; l = 0;
+			j = sprintf(sentence, "[V] %pK:      ", cur);
+			items = 0;
+		}
+		memcpy_fromio(term, cur, sizeof(term));
+		k += sprintf(strHexa + k, "%02X%02X%02X%02X ",
+			term[0], term[1], term[2], term[3]);
+		l += sprintf(strString + l, "%c%c%c%c", ISPRINTABLE(term[0]),
+			ISPRINTABLE(term[1]), ISPRINTABLE(term[2]), ISPRINTABLE(term[3]));
+		cur++;
+		items++;
+	}
+	if (items) {
+		j += sprintf(sentence + j, "%s   %s", strHexa, strString);
+#ifdef DEBUG_LOG_MEMORY
+		pr_debug("%s\n", sentence);
+#else
+		pr_info("%s\n", sentence);
+#endif
+	}
+	ret = cur - end;
+	return ret;
+}
+
 
 static ssize_t npu_chg_log_level_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -963,7 +1064,7 @@ int fw_will_note(size_t len)
 		return -ENOMEM;
 	}
 	pos = 0;
-	pr_err("----------- Start will_note for npu_fw -------------\n");
+	pr_err("----------- Start will_note for npu_fw (/sys/kernel/debug/npu/fw-report )-------------\n");
 	if ((fw_report.last_dump_line_cnt != 0) && (bReqLegacy == TRUE)) {
 		for (i = fw_report.st_size - (len - fw_report.wr_pos); i < fw_report.st_size; i++) {
 			buf[pos] = fw_report.st_buf[i];
@@ -988,10 +1089,16 @@ int fw_will_note(size_t len)
 			buf[0] = '\0';
 		}
 	}
+
 	pr_cont("----------- End of will_note for npu_fw -------------\n");
 	spin_unlock_irqrestore(&fw_report_lock, intr_flags);
 	kfree(buf);
-
+	pr_err("----------- Check unposted_mbox ---------------------\n");
+	npu_check_unposted_mbox(ECTRL_LOW);
+	npu_check_unposted_mbox(ECTRL_HIGH);
+	npu_check_unposted_mbox(ECTRL_ACK);
+	npu_check_unposted_mbox(ECTRL_REPORT);
+	pr_err("----------- Done unposted_mbox ----------------------\n");
 	return 0;
 
 }

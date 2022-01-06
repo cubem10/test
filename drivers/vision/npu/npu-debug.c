@@ -34,13 +34,6 @@
 /* Singleton reference to debug object */
 static struct npu_debug *npu_debug_ref;
 
-/* Keep the list of debug files created */
-struct npu_debug_file {
-	char		 fname[NPU_DEBUG_FILENAME_LEN + 2];
-	struct dentry *file_entry;
-	struct list_head list;
-};
-
 typedef enum {
 	FS_READY = 0,
 } npu_debug_state_bits_e;
@@ -78,11 +71,18 @@ int npu_debug_register_arg(
 	const char *name, void *private_arg,
 	const struct file_operations *ops)
 {
-	struct npu_debug_file	*new_debug_file = NULL;
 	int			ret	    = 0;
 	struct npu_device	*npu_device;
 	struct device		*dev;
 	mode_t			mode = 0;
+	struct dentry		*dbgfs_entry;
+
+	/* Check whether the debugfs is properly initialized */
+	if (!check_state_bit(FS_READY)) {
+		npu_warn("DebugFS not initialized or disabled. Skip creation [%s]\n", name);
+		ret = 0;
+		goto err_exit;
+	}
 
 	/* Default parameter is npu_debug object */
 	if (private_arg == NULL) {
@@ -95,37 +95,16 @@ int npu_debug_register_arg(
 	dev = npu_device->dev;
 	BUG_ON(!dev);
 
-	if (!check_state_bit(FS_READY)) {
-		npu_err("not ready of npu_debug\n");
-		ret = -EFAULT;
-		goto err_exit;
-	}
-
 	if (name == NULL) {
-		npu_err("null of name\n");
+		npu_err("name is null\n");
 		ret = -EFAULT;
 		goto err_exit;
 	}
 	if (ops == NULL) {
-		npu_err("null of name\n");
+		npu_err("ops is null\n");
 		ret = -EFAULT;
 		goto err_exit;
 	}
-
-	/* Allocate a new entry */
-	new_debug_file
-		= (struct npu_debug_file *)
-		  devm_kzalloc(dev, sizeof(*new_debug_file), GFP_ATOMIC);
-	if (!new_debug_file) {
-		npu_err("fail in npu_debug_file memory allocation\n");
-		ret = -ENOMEM;
-		goto err_exit;
-	}
-	INIT_LIST_HEAD(&new_debug_file->list);
-
-	/* Make file name */
-	strncpy(new_debug_file->fname, name, NPU_DEBUG_FILENAME_LEN);
-	new_debug_file->fname[NPU_DEBUG_FILENAME_LEN] = '\0';
 
 	/* Setting file permission based on file_operation member */
 	if (ops->read || ops->compat_ioctl || ops->unlocked_ioctl)
@@ -135,27 +114,20 @@ int npu_debug_register_arg(
 		mode |= 0200;	/* Write permission to owner */
 
 	/* Register */
-	new_debug_file->file_entry
-		= debugfs_create_file(new_debug_file->fname, mode,
+	dbgfs_entry = debugfs_create_file(name, mode,
 			npu_debug_ref->dfile_root, private_arg, ops);
-	if (!new_debug_file->file_entry) {
-		npu_err("fail in DebugFS registration (%s)\n"
-			, new_debug_file->fname);
-		ret = -EFAULT;
+	if (IS_ERR(dbgfs_entry)) {
+		npu_err("fail in DebugFS registration (%s)\n", name);
+		ret = PTR_ERR(dbgfs_entry);
 		goto err_exit;
 	}
 
-	/* Save the link */
-	list_add(&npu_debug_ref->debug_files, &new_debug_file->list);
-
 	npu_info("success in DebugFS registration (%s) : Mode %04o\n"
-		 , new_debug_file->fname, mode);
+		 , name, mode);
 
 	return 0;
+
 err_exit:
-	if (new_debug_file) {
-		kfree(new_debug_file);
-	}
 	return ret;
 }
 
@@ -176,10 +148,12 @@ int npu_debug_probe(struct npu_device *npu_device)
 
 	probe_info("Loading npu_debug : starting\n");
 	npu_debug_ref->dfile_root = debugfs_create_dir(DEBUG_FS_ROOT_NAME, NULL);
-	INIT_LIST_HEAD(&npu_debug_ref->debug_files);
+
 	if (!npu_debug_ref->dfile_root) {
 		probe_err("Loading npu_debug : debugfs root [%s] can not be created\n",
 			  DEBUG_FS_ROOT_NAME);
+
+		npu_debug_ref->dfile_root = NULL;
 		ret = -ENOENT;
 		goto err_exit;
 	}
@@ -215,8 +189,9 @@ int npu_debug_release(void)
 
 	npu_info("start in unloading npu_debug\n");
 	if (!check_state_bit(FS_READY)) {
+		/* No need to clean-up */
 		npu_err("not ready in npu_debug\n");
-		return -EFAULT;
+		return 0;
 	}
 
 	/* Retrieve struct device to use devm_XX api */
@@ -229,24 +204,7 @@ int npu_debug_release(void)
 		npu_err("npu_ver_release error : ret = %d\n", ret);
 
 	/* Remove debug fs entries */
-	if (!list_empty(&npu_debug_ref->debug_files)) {
-		int		       remove_ent = 0;
-		struct npu_debug_file *pos;
-		struct npu_debug_file *temp;
-
-		/* Remove debugfs entry and free the allocated memory */
-		list_for_each_entry_safe(pos, temp, &npu_debug_ref->debug_files, list) {
-			if (pos->file_entry) {
-				debugfs_remove(pos->file_entry);
-			}
-			list_del_init(&pos->list);
-			devm_kfree(dev, pos);
-			remove_ent++;
-		}
-		npu_info("unloading npu_debug: (%d) debug files are removed.\n",
-			 remove_ent);
-	}
-	debugfs_remove(npu_debug_ref->dfile_root);
+	debugfs_remove_recursive(npu_debug_ref->dfile_root);
 	npu_info("unloading npu_debug: root node is removed.\n");
 
 	clear_state_bit(FS_READY);

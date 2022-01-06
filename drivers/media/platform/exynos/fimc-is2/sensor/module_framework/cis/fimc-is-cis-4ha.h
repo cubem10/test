@@ -25,6 +25,8 @@
 #define SENSOR_4HA_COARSE_INTEGRATION_TIME_MIN              0x4
 #define SENSOR_4HA_COARSE_INTEGRATION_TIME_MAX_MARGIN       0x6
 
+#define SENSOR_4HA_EXPOSURE_TIME_MAX						100000 /* 100ms */
+
 #define USE_GROUP_PARAM_HOLD	(0)
 
 enum sensor_4ha_mode_enum {

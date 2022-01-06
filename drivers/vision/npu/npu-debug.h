@@ -18,7 +18,6 @@
 struct npu_debug {
 	struct dentry *dfile_root;
 	unsigned long  state;
-	struct list_head debug_files; /* List of struct npu_debug_file */
 };
 
 /* Forward declaration */

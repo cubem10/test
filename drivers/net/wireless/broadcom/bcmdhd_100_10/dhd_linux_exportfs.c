@@ -25,7 +25,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_linux_exportfs.c 797490 2019-01-02 03:56:40Z $
+ * $Id: dhd_linux_exportfs.c 808906 2019-03-11 10:39:38Z $
  */
 #include <linux/kobject.h>
 #include <linux/proc_fs.h>
@@ -704,7 +704,7 @@ get_assert_val_from_file(void)
 		filp_close(fp, NULL);
 	}
 
-#ifdef CUSTOERM_HW4_DEBUG
+#ifdef CUSTOMER_HW4_DEBUG
 	mem_val = (mem_val >= 0) ? mem_val : 1;
 #else
 	mem_val = (mem_val >= 0) ? mem_val : 0;
@@ -1270,9 +1270,10 @@ static struct dhd_attr dhd_attr_hang_privcmd_err =
 	__ATTR(hang_privcmd_err, 0660, show_hang_privcmd_err, set_hang_privcmd_err);
 #endif /* DHD_SEND_HANG_PRIVCMD_ERRORS */
 
-#if defined(DISABLE_HE_ENAB) ||defined(CUSTOM_CONTROL_HE_ENAB)
+#if defined(DISABLE_HE_ENAB) || defined(CUSTOM_CONTROL_HE_ENAB)
 uint8 control_he_enab = 1;
 #endif /* DISABLE_HE_ENAB || CUSTOM_CONTROL_HE_ENAB */
+
 #if defined(CUSTOM_CONTROL_HE_ENAB)
 static ssize_t
 show_control_he_enab(struct dhd_info *dev, char *buf)
@@ -1289,17 +1290,15 @@ set_control_he_enab(struct dhd_info *dev, const char *buf, size_t count)
 	uint32 val;
 
 	val = bcm_atoi(buf);
-	control_he_enab = val ? 1 : 0;
 
+	control_he_enab = val ? 1 : 0;
 	DHD_ERROR(("%s: Set control he enab: %d\n", __FUNCTION__, control_he_enab));
-	
 	return count;
 }
 
 static struct dhd_attr dhd_attr_control_he_enab=
-	__ATTR(control_he_enab, 0660, show_control_he_enab, set_control_he_enab);
+__ATTR(control_he_enab, 0660, show_control_he_enab, set_control_he_enab);
 #endif /* CUSTOM_CONTROL_HE_ENAB */
-
 /* Attribute object that gets registered with "wifi" kobject tree */
 static struct attribute *control_file_attrs[] = {
 #ifdef DHD_MAC_ADDR_EXPORT

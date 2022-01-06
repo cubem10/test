@@ -166,14 +166,12 @@ static struct vb_fmt *__vb_find_format(u32 colorspace)
 {
 	size_t i;
 	struct vb_fmt *fmt = NULL;
-
 	for (i = 0; i < ARRAY_SIZE(vb_fmts); ++i) {
 		if (vb_fmts[i].colorspace == colorspace) {
 			fmt = &vb_fmts[i];
 			break;
 		}
 	}
-
 	return fmt;
 }
 
@@ -182,11 +180,8 @@ static int __vb_plane_size(struct vb_format *format)
 	int ret = 0;
 	u32 plane;
 	struct vb_fmt *fmt;
-
 	BUG_ON(!format);
-
 	fmt = format->fmt;
-
 	if (fmt->planes > VB_MAX_PLANES) {
 		vision_err("planes(%d) is invalid\n", fmt->planes);
 		ret = -EINVAL;
@@ -211,16 +206,15 @@ static int __vb_unmap_dmabuf(struct vb_queue *q, struct vb_buffer *buffer)
 {
 	int ret = 0;
 
-	if (buffer->vaddr)
+	if (!IS_ERR_OR_NULL(buffer->vaddr))
 		dma_buf_vunmap(buffer->dma_buf, buffer->vaddr);
-	if (buffer->daddr)
+	if (buffer->daddr && !IS_ERR_VALUE(buffer->daddr))
 		ion_iovmm_unmap(buffer->attachment, buffer->daddr);
-	if (buffer->sgt)
-		dma_buf_unmap_attachment(
-			buffer->attachment, buffer->sgt, DMA_BIDIRECTIONAL);
-	if (buffer->attachment)
+	if (!IS_ERR_OR_NULL(buffer->sgt))
+		dma_buf_unmap_attachment(buffer->attachment, buffer->sgt, DMA_BIDIRECTIONAL);
+	if (!IS_ERR_OR_NULL(buffer->attachment) && !IS_ERR_OR_NULL(buffer->dma_buf))
 		dma_buf_detach(buffer->dma_buf, buffer->attachment);
-	if (buffer->dma_buf)
+	if (!IS_ERR_OR_NULL(buffer->dma_buf))
 		dma_buf_put(buffer->dma_buf);
 
 	buffer->attachment = NULL;
@@ -267,6 +261,11 @@ static int __vb_map_dmabuf(
 	buffer->vaddr = NULL;
 
 	buffer->dma_buf = dma_buf_get(buffer->m.fd);
+	if (IS_ERR_OR_NULL(buffer->dma_buf)) {
+		vision_err("dma_buf_get is fail(0x%08x)\n", buffer->dma_buf);
+		ret = -EINVAL;
+		goto p_err;
+	}
 
 	attachment = dma_buf_attach(buffer->dma_buf, q->alloc_ctx);
 	if (IS_ERR(attachment)) {
@@ -284,7 +283,7 @@ static int __vb_map_dmabuf(
 
 	daddr = ion_iovmm_map(attachment, 0, size, DMA_BIDIRECTIONAL, 0);
 	if (IS_ERR_VALUE(daddr)) {
-		vision_err("Failed to allocate iova (err 0x%p)\n", &daddr);
+		vision_err("Failed to allocate iova (err %pad)\n", &daddr);
 		ret = -ENOMEM;
 		goto p_err;
 	}
@@ -292,7 +291,7 @@ static int __vb_map_dmabuf(
 
 	vaddr = dma_buf_vmap(buffer->dma_buf);
 	if (IS_ERR(vaddr)) {
-		vision_err("Failed to get vaddr (err 0x%p)\n", &vaddr);
+		vision_err("Failed to get vaddr (err %pK)\n", vaddr);
 		ret = -EFAULT;
 		goto p_err;
 	}
@@ -300,7 +299,7 @@ static int __vb_map_dmabuf(
 
 	complete_suc = true;
 
-	//vision_info("__vb_map_dmabuf, size(%d), daddr(0x%x), vaddr(0x%p)\n",
+	//vision_info("__vb_map_dmabuf, size(%d), daddr(0x%x), vaddr(0x%pK)\n",
 		//size, daddr, vaddr);
 p_err:
 	if (complete_suc != true)
@@ -881,39 +880,76 @@ int vb_queue_start(struct vb_queue *q)
 		ret = -EINVAL;
 		goto p_err;
 	}
-
 	q->streaming = 1;
 	set_bit(VB_QUEUE_STATE_START, &q->state);
-
 p_err:
 	return ret;
 }
 
-int vb_queue_stop(struct vb_queue *q)
+int __vb_queue_clear(struct vb_queue *q)
+{
+	int ret = 0;
+	unsigned long flags;
+	struct vb_bundle *pos_vb;
+	struct vb_bundle *n_vb;
+
+	BUG_ON(!q);
+
+	list_for_each_entry_safe(pos_vb, n_vb, &q->queued_list, queued_entry) {
+		if (pos_vb->state == VB_BUF_STATE_QUEUED) {
+			list_del(&pos_vb->queued_entry);
+			atomic_dec(&q->queued_count);
+		}
+	}
+
+	spin_lock_irqsave(&q->done_lock, flags);
+	list_for_each_entry_safe(pos_vb, n_vb, &q->done_list, done_entry) {
+		if (pos_vb->state == VB_BUF_STATE_DONE)	{
+			list_del(&pos_vb->done_entry);
+			atomic_dec(&q->done_count);
+			pos_vb->state = VB_BUF_STATE_DEQUEUED;
+			list_del(&pos_vb->queued_entry);
+			atomic_dec(&q->queued_count);
+		}
+	}
+	spin_unlock_irqrestore(&q->done_lock, flags);
+
+	return ret;
+}
+
+static int __vb_queue_stop(struct vb_queue *q, int is_forced)
 {
 	int ret = 0;
 	u32 i;
 	struct vb_bundle *bundle;
+
+	__vb_queue_clear(q);
 
 	q->streaming = 0;
 	wake_up_all(&q->done_wq);
 
 	if (atomic_read(&q->queued_count) > 0) {
 		vision_err("queued list is not empty\n");
-		ret = -EINVAL;
-		goto p_err;
+		if (!is_forced) {
+			ret = -EINVAL;
+			goto p_err;
+		}
 	}
 
 	if (atomic_read(&q->process_count) > 0) {
 		vision_err("process list is not empty\n");
-		ret = -EINVAL;
-		goto p_err;
+		if (!is_forced) {
+			ret = -EINVAL;
+			goto p_err;
+		}
 	}
 
 	if (atomic_read(&q->done_count) > 0) {
 		vision_err("done list is not empty\n");
-		ret = -EINVAL;
-		goto p_err;
+		if (!is_forced) {
+			ret = -EINVAL;
+			goto p_err;
+		}
 	}
 
 	INIT_LIST_HEAD(&q->queued_list);
@@ -928,13 +964,15 @@ int vb_queue_stop(struct vb_queue *q)
 		ret = __vb_buf_unprepare(q, bundle);
 		if (ret) {
 			vision_err("__vb_buf_unprepare is fail(%d)\n", ret);
-			goto p_err;
+			if (!is_forced)
+				goto p_err;
 		}
 
 		ret = __vb_queue_free(q, bundle);
 		if (ret) {
 			vision_err("__vb_queue_free is fail(%d)\n", ret);
-			goto p_err;
+			if (!is_forced)
+				goto p_err;
 		}
 	}
 
@@ -946,7 +984,20 @@ int vb_queue_stop(struct vb_queue *q)
 	}
 	clear_bit(VB_QUEUE_STATE_START, &q->state);
 p_err:
-	return ret;
+	if (!is_forced)
+		return ret;
+	else
+		return 0;	/* Always successful on forced stop */
+}
+
+int vb_queue_stop(struct vb_queue *q)
+{
+	return __vb_queue_stop(q, 0);
+}
+
+int vb_queue_stop_forced(struct vb_queue *q)
+{
+	return __vb_queue_stop(q, 1);
 }
 
 int vb_queue_qbuf(struct vb_queue *q, struct vs4l_container_list *c)

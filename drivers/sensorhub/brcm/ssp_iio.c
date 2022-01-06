@@ -62,6 +62,8 @@ static struct sensor_info info_table[] = {
 	SENSOR_INFO_CALL_GESTURE,
 	SENSOR_INFO_PROXIMITY_ADC_CALIB,
 	SENSOR_INFO_UNCAL_LIGHT,
+	SENSOR_INFO_POCKET_MODE,
+	SENSOR_INFO_LED_COVER_EVENT,
 };
 
 #define IIO_ST(si, rb, sb, sh)	\
@@ -293,7 +295,7 @@ void report_light_ir_data(struct ssp_data *data, int sensor_type, struct sensor_
 	report_iio_data(data, LIGHT_IR_SENSOR, lightirdata);
 
 	if (data->light_ir_log_cnt < 3) {
-		ssp_dbg("[SSP]#>IR irdata=%d r=%d g=%d b=%d c=%d atime=%d again=%d \n",
+		ssp_dbg("[SSP]#>IR irdata=%d r=%d g=%d b=%d c=%d atime/brightness_level=%d again=%d \n",
 			data->buf[LIGHT_IR_SENSOR].irdata, data->buf[LIGHT_IR_SENSOR].ir_r, data->buf[LIGHT_IR_SENSOR].ir_g,
 			data->buf[LIGHT_IR_SENSOR].ir_b, data->buf[LIGHT_IR_SENSOR].ir_w, data->buf[LIGHT_IR_SENSOR].ir_a_time,
 			data->buf[LIGHT_IR_SENSOR].ir_a_gain);
@@ -308,10 +310,19 @@ void report_light_cct_data(struct ssp_data *data, int sensor_type, struct sensor
 
 	if (data->light_cct_log_cnt< 3) {
 #ifdef CONFIG_SENSORS_SSP_LIGHT_REPORT_LUX
-		ssp_dbg("[SSP] #>CCT lux=%u cct=%d r=%d g=%d b=%d c=%d atime=%d again=%d",
+#ifdef CONFIG_SENSORS_SSP_LIGHT_LUX_RAW
+		ssp_dbg("[SSP] #>CCT lux=%u cct=%d r=%d g=%d b=%d c=%d atime=%d again=%d lux_raw=%d",
+			data->buf[LIGHT_CCT_SENSOR].lux, data->buf[LIGHT_CCT_SENSOR].cct,
+			data->buf[LIGHT_CCT_SENSOR].r, data->buf[LIGHT_CCT_SENSOR].g, data->buf[LIGHT_CCT_SENSOR].b,
+			data->buf[LIGHT_CCT_SENSOR].w, data->buf[LIGHT_CCT_SENSOR].a_time, data->buf[LIGHT_CCT_SENSOR].a_gain,
+			data->buf[LIGHT_CCT_SENSOR].lux_raw);
+#else
+	ssp_dbg("[SSP] #>CCT lux=%u cct=%d r=%d g=%d b=%d c=%d atime=%d again=%d",
 			data->buf[LIGHT_CCT_SENSOR].lux, data->buf[LIGHT_CCT_SENSOR].cct,
 			data->buf[LIGHT_CCT_SENSOR].r, data->buf[LIGHT_CCT_SENSOR].g, data->buf[LIGHT_CCT_SENSOR].b,
 			data->buf[LIGHT_CCT_SENSOR].w, data->buf[LIGHT_CCT_SENSOR].a_time, data->buf[LIGHT_CCT_SENSOR].a_gain);
+
+#endif
 #else
 		ssp_dbg("[SSP] #>CCT r=%d g=%d b=%d c=%d atime=%d again=%d",
 			data->buf[LIGHT_CCT_SENSOR].r, data->buf[LIGHT_CCT_SENSOR].g, data->buf[LIGHT_CCT_SENSOR].b,
@@ -337,9 +348,13 @@ void report_prox_data(struct ssp_data *data, int sensor_type, struct sensor_valu
 
         ts_high = (u32)((proxdata->timestamp)>>32);
         ts_low = (u32)((proxdata->timestamp)&0x00000000ffffffff);
-
+#if defined(CONFIG_SENSORS_SSP_PROX_LIGHT_DIFF)
+	   ssp_dbg("[SSP] Proximity Sensor Detect : %u, raw : %u light_diff: %d ts : %llu %d %d\n",
+		proxdata->prox_detect, proxdata->prox_adc, proxdata->light_diff, proxdata->timestamp, ts_high, ts_low);
+#else
         ssp_dbg("[SSP] Proximity Sensor Detect : %u, raw : %u ts : %llu %d %d\n",
 		proxdata->prox_detect, proxdata->prox_adc, proxdata->timestamp, ts_high, ts_low);
+#endif
 }
 
 void report_prox_raw_data(struct ssp_data *data, int sensor_type,
@@ -366,8 +381,10 @@ void report_prox_raw_data(struct ssp_data *data, int sensor_type,
 		if (proxrawdata->prox_raw[0] > data->uFactoryProxAvg[3])
 			data->uFactoryProxAvg[3] = proxrawdata->prox_raw[0];
 	}
-
+	
 	data->buf[PROXIMITY_RAW].prox_raw[0] = proxrawdata->prox_raw[0];
+	
+	report_iio_data(data, PROXIMITY_RAW, proxrawdata);	
 }
 
 void report_proximity_pocket_data(struct ssp_data *data, int sensor_type, struct sensor_value *proximity_pocket)
@@ -467,7 +484,13 @@ void report_scontext_data(struct ssp_data *data, int sensor_type,
 	memcpy(printbuf, scontextbuf, 72);
 	memcpy(&start, printbuf+4, sizeof(short));
 	memcpy(&end, printbuf+6, sizeof(short));
-	ssp_sensorhub_log("ssp_AlgoPacket", printbuf + 8, end - start + 1);
+
+	if (end - start + 1 <= 64) {
+		ssp_sensorhub_log("ssp_AlgoPacket", printbuf + 8, end - start + 1);
+	} else {
+		pr_err("[SSP] : ssp_AlgoPacket packet error start:%d end:%d", start, end);
+	}
+
 	mutex_lock(&data->indio_scontext_dev->mlock);
 	iio_push_to_buffers(data->indio_scontext_dev, scontextbuf);
 	mutex_unlock(&data->indio_scontext_dev->mlock);
@@ -477,6 +500,24 @@ void report_scontext_data(struct ssp_data *data, int sensor_type,
 void report_uncalib_accel_data(struct ssp_data *data, int sensor_type, struct sensor_value *acceldata)
 {
 	report_iio_data(data, ACCEL_UNCALIB_SENSOR, acceldata);
+}
+
+void report_pocket_mode_data(struct ssp_data *data, int sensor_type,
+		struct sensor_value *pocket_data)
+{
+	report_iio_data(data, POCKET_MODE_SENSOR, pocket_data);
+	wake_lock_timeout(&data->ssp_wake_lock, 0.3*HZ);
+	pr_err("[SSP]: %s: state = %d reason = %d base = %d current = %d temp = %d ts: %llu", __func__,
+		pocket_data->pocket_mode, pocket_data->pocket_reason, pocket_data->pocket_base_proxy,
+		pocket_data->pocket_current_proxy, pocket_data->pocket_temp, pocket_data->timestamp);
+}
+
+void report_led_cover_event_data(struct ssp_data *data, int sensor_type,
+		struct sensor_value *led_cover_event_data)
+{
+	report_iio_data(data, LED_COVER_EVENT_SENSOR, led_cover_event_data);
+	wake_lock_timeout(&data->ssp_wake_lock, 0.3*HZ);
+	pr_err("[SSP]: %s: %d ts: %llu", __func__,  led_cover_event_data->led_cover_event, led_cover_event_data->timestamp);
 }
 
 #define THM_UP		0

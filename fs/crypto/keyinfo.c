@@ -27,6 +27,15 @@ static int derive_key_aes(const u8 *, const struct fscrypt_context *, u8 *,
 static int find_and_derive_key(const struct inode *inode,
 		const struct fscrypt_context *ctx, u8 *derived_key,
 		unsigned int derived_keysize) __attribute__((unused));
+static int find_and_derive_key_iv(const struct inode *inode,
+		const struct fscrypt_context *ctx,
+		u8 *derived_key, unsigned int derived_keysize, u8 *iv_key)  __attribute__((unused));
+#endif
+#ifdef CONFIG_FSCRYPT_SDP
+static int derive_fek(struct inode *inode,
+		const struct fscrypt_context *ctx,
+		struct fscrypt_info *crypt_info,
+		u8 *fek, u32 fek_len);
 #endif
 
 static struct crypto_shash *essiv_hash_tfm;
@@ -125,6 +134,7 @@ find_and_lock_process_key(const char *prefix,
 			     key->description, payload->size, min_keysize);
 		goto invalid;
 	}
+
 	*payload_ret = payload;
 	return key;
 
@@ -188,7 +198,7 @@ static inline int __find_and_derive_key(const struct inode *inode,
 					u8 *derived_key, unsigned int derived_keysize,
 					struct fscrypt_info *ci)
 {
-#ifdef CONFIG_FS_CRYPTO_SEC_EXTENSION
+#ifdef CONFIG_CRYPTO_KBKDF_CTR_HMAC_SHA512
 	u8 *iv_key = NULL;
 
 	if (!S_ISREG(inode->i_mode))
@@ -443,7 +453,9 @@ int fscrypt_get_encryption_info(struct inode *inode)
 	struct fscrypt_mode *mode;
 	u8 *raw_key = NULL;
 	int res;
-
+#ifdef CONFIG_FSCRYPT_SDP
+	sdp_fs_command_t *cmd = NULL;
+#endif
 	if (inode->i_crypt_info)
 		return 0;
 
@@ -521,10 +533,21 @@ int fscrypt_get_encryption_info(struct inode *inode)
 		if (res)
 			goto out;
 
-		if (fscrypt_sdp_is_regular_sensitive(crypt_info)) {
-			res = fscrypt_sdp_derive_dek(crypt_info, raw_key, mode->keysize);
-			if (res)
+		if (fscrypt_sdp_is_classified(crypt_info)) {
+			res = derive_fek(inode, &ctx, crypt_info, raw_key, mode->keysize);
+			if (res) {
+				if (fscrypt_sdp_is_sensitive(crypt_info)) {
+					cmd = sdp_fs_command_alloc(FSOP_AUDIT_FAIL_DECRYPT,
+						current->tgid, crypt_info->ci_sdp_info->engine_id, -1,
+						inode->i_ino, res, GFP_NOFS);
+					if (cmd) {
+						sdp_fs_request(cmd, NULL);
+						sdp_fs_command_free(cmd);
+					}
+				}
 				goto out;
+			}
+
 			fscrypt_sdp_update_conv_status(crypt_info);
 			goto sdp_dek;
 		}
@@ -605,7 +628,7 @@ attach_ci:
 		crypt_info = NULL;
 #ifdef CONFIG_FSCRYPT_SDP
 	if (crypt_info == NULL) //Call only when i_crypt_info is loaded initially
-		fscrypt_sdp_finalize_tasks(inode, raw_key, (res ? res : mode->keysize));
+		fscrypt_sdp_finalize_tasks(inode, raw_key, mode->keysize);
 #endif
 out:
 	if (res == -ENOKEY)
@@ -627,12 +650,75 @@ void fscrypt_put_encryption_info(struct inode *inode)
 EXPORT_SYMBOL(fscrypt_put_encryption_info);
 
 #ifdef CONFIG_FSCRYPT_SDP
+static inline int __find_and_derive_fskey(const struct inode *inode,
+						const struct fscrypt_context *ctx,
+						struct fscrypt_key *fskey, unsigned int min_keysize)
+{
+	struct key *key;
+	const struct fscrypt_key *payload;
+
+	key = find_and_lock_process_key(FS_KEY_DESC_PREFIX,
+					ctx->master_key_descriptor,
+					min_keysize, &payload);
+	if (key == ERR_PTR(-ENOKEY) && inode->i_sb->s_cop->key_prefix) {
+		key = find_and_lock_process_key(inode->i_sb->s_cop->key_prefix,
+						ctx->master_key_descriptor,
+						min_keysize, &payload);
+	}
+	if (IS_ERR(key))
+		return PTR_ERR(key);
+	memcpy(fskey, payload, sizeof(struct fscrypt_key));
+	up_read(&key->sem);
+	key_put(key);
+	return 0;
+}
+
+/* The function is only for regular files */
+static int derive_fek(struct inode *inode,
+						const struct fscrypt_context *ctx,
+						struct fscrypt_info *crypt_info,
+						u8 *fek, u32 fek_len)
+{
+	int res = 0;
+	/*
+	 * 1. [ Native / Uninitialized / To_sensitive ]  --> Plain fek
+	 * 2. [ Native / Uninitialized / Non_sensitive ] --> Plain fek
+	 */
+	if (fscrypt_sdp_is_uninitialized(crypt_info))
+	{
+		res = fscrypt_sdp_derive_uninitialized_dek(crypt_info, fek, fek_len);
+	}
+	/*
+	 * 3. [ Native / Initialized / Sensitive ]     --> { fek }_SDPK
+	 * 4. [ Non_native / Initialized / Sensitive ] --> { fek }_SDPK
+	 */
+	else if (fscrypt_sdp_is_sensitive(crypt_info))
+	{
+		res = fscrypt_sdp_derive_dek(crypt_info, fek, fek_len);
+	}
+	/*
+	 * 5. [ Native / Initialized / Non_sensitive ] --> { fek }_cekey
+	 */
+	else if (fscrypt_sdp_is_native(crypt_info))
+	{
+		res = fscrypt_sdp_derive_fek(inode, crypt_info, fek, fek_len);
+	}
+	/*
+	 * else { N/A }
+	 *
+	 * Not classified file.
+	 * 6. [ Non_native / Initialized / Non_sensitive ]
+	 * 7. [ Non_native / Initialized / To_sensitive ]
+	 */
+	return res;
+}
+
 int fscrypt_get_encryption_key(struct inode *inode, struct fscrypt_key *key)
 {
 	struct fscrypt_info *crypt_info;
 	struct fscrypt_context ctx;
 	struct fscrypt_mode *mode;
-	u8 *raw_key;
+	u8 *raw_key = NULL;
 	int res;
 
 	// fscrypt_info in inode is not initialized yet. It should be called after
@@ -690,4 +776,113 @@ out:
 	return res;
 }
 EXPORT_SYMBOL(fscrypt_get_encryption_key);
+
+int fscrypt_get_encryption_key_classified(struct inode *inode, struct fscrypt_key *key)
+{
+	struct fscrypt_info *crypt_info;
+	struct fscrypt_context ctx;
+	struct fscrypt_mode *mode;
+	u8 *raw_key = NULL;
+	int res;
+
+	// fscrypt_info in inode is not initialized yet. It should be called after
+	// getting fscrypt_info.
+	if (!inode->i_crypt_info) {
+		return -EINVAL;
+	}
+	crypt_info = inode->i_crypt_info;
+
+//	res = fscrypt_initialize(inode->i_sb->s_cop->flags);
+//	if (res)
+//		return res;
+
+	res = inode->i_sb->s_cop->get_context(inode, &ctx, sizeof(ctx));
+	if (res < 0) {
+		return res;
+	} else if (res != sizeof(ctx)) {
+		return -EINVAL;
+	}
+
+	if (ctx.format != FS_ENCRYPTION_CONTEXT_FORMAT_V1)
+		return -EINVAL;
+
+	if (ctx.flags & ~FS_POLICY_FLAGS_VALID)
+		return -EINVAL;
+
+	mode = select_encryption_mode(crypt_info, inode);
+	if (IS_ERR(mode)) {
+		res = PTR_ERR(mode);
+		goto out;
+	}
+
+	if (FS_MAX_KEY_SIZE < mode->keysize) {
+		return -EPERM;
+	}
+
+	/*
+	 * This cannot be a stack buffer because it is passed to the scatterlist
+	 * crypto API as part of key derivation.
+	 */
+	res = -ENOMEM;
+	raw_key = kmalloc(mode->keysize, GFP_NOFS);
+	if (!raw_key)
+		goto out;
+
+	res = derive_fek(inode, &ctx, crypt_info, raw_key, mode->keysize);
+	if (res)
+		goto out;
+
+	memcpy(key->raw, raw_key, mode->keysize);
+	key->size = mode->keysize;
+
+out:
+	kzfree(raw_key);
+	return res;
+}
+EXPORT_SYMBOL(fscrypt_get_encryption_key_classified);
+
+int fscrypt_get_encryption_kek(struct inode *inode,
+							struct fscrypt_info *crypt_info,
+							struct fscrypt_key *kek)
+{
+	struct fscrypt_context ctx;
+	struct fscrypt_mode *mode;
+	int res;
+
+	if (!crypt_info)
+		return -EINVAL;
+
+//	res = fscrypt_initialize(inode->i_sb->s_cop->flags);
+//	if (res)
+//		return res;
+
+	res = inode->i_sb->s_cop->get_context(inode, &ctx, sizeof(ctx));
+	if (res < 0) {
+		return res;
+	} else if (res != sizeof(ctx)) {
+		return -EINVAL;
+	}
+
+	if (ctx.format != FS_ENCRYPTION_CONTEXT_FORMAT_V1)
+		return -EINVAL;
+
+	if (ctx.flags & ~FS_POLICY_FLAGS_VALID)
+		return -EINVAL;
+
+	mode = select_encryption_mode(crypt_info, inode);
+	if (IS_ERR(mode)) {
+		res = PTR_ERR(mode);
+		goto out;
+	}
+
+	if (FS_MAX_KEY_SIZE < mode->keysize) {
+		return -EPERM;
+	}
+
+	res = __find_and_derive_fskey(inode, &ctx, kek, mode->keysize);
+
+out:
+	return res;
+}
+EXPORT_SYMBOL(fscrypt_get_encryption_kek);
 #endif

@@ -15,6 +15,7 @@
 #include <linux/of.h>
 #include <linux/slab.h>
 #include <linux/kfifo.h>
+#include <linux/delay.h>
 
 #include <linux/exynos_iovmm.h>
 #include <linux/pm_runtime.h>
@@ -143,6 +144,12 @@ static int __npu_device_power_off(struct npu_device *device)
 {
 	int ret = 0;
 
+	if (test_bit(NPU_DEVICE_ERR_STATE_EMERGENCY, &device->err_state)) {
+		npu_info("EMERGENCY_RECOVERY - %ums delay insearted before power down.\n",
+			POWER_DOWN_DELAY_ON_EMERGENCY);
+		msleep(POWER_DOWN_DELAY_ON_EMERGENCY);
+	}
+
 	ret = pm_runtime_put_sync(device->dev);
 	if (ret)
 		npu_err("fail(%d) in runtime suspend\n", ret);
@@ -209,7 +216,7 @@ static int npu_iommu_fault_handler(struct iommu_domain *domain,
 {
 	struct npu_device	*device = token;
 
-	dev_err(dev, "%s() is called with fault addr(0x%lx), mode(%p), state(%p))\n",
+	dev_err(dev, "%s() is called with fault addr(0x%lx), mode(%pK), state(%pK))\n",
 			__func__, fault_addr, &device->mode, &device->state);
 
 	npu_util_dump_handle_error_k(device);
@@ -338,22 +345,22 @@ int npu_device_open(struct npu_device *device)
 		goto ErrorExit;
 	}
 
+	ret = __npu_device_power_on(device);
+	if (ret) {
+		npu_err("fail(%d) in __npu_device_power_on\n", ret);
+		goto ErrorExit;
+	}
+	if (test_bit(NPU_DEVICE_ERR_STATE_EMERGENCY, &device->err_state)) {
+		ret = -ELIBACC;
+		goto ErrorExit;
+	}
+
 	ret = proto_drv_open(device);
 	if (ret) {
 		npu_err("fail(%d) in proto_drv_open\n", ret);
 		goto ErrorExit;
 	}
 
-	ret = __npu_device_power_on(device);
-	if (ret) {
-		npu_err("fail(%d) in __npu_device_power_on\n", ret);
-		goto ErrorExit;
-	}
-
-	if (test_bit(NPU_DEVICE_ERR_STATE_EMERGENCY, &device->err_state)) {
-		ret = -ELIBACC;
-		goto ErrorExit;
-	}
 	ret = __npu_device_late_open(device);
 	if (ret) {
 		npu_err("fail(%d) in __npu_device_late_open\n", ret);
@@ -369,7 +376,7 @@ ErrorExit:
 	return ret;
 }
 
-int npu_system_put_req(nw_cmd_e nw_cmd)
+int npu_system_put_req_nw(nw_cmd_e nw_cmd)
 {
 	int ret = 0;
 	struct npu_nw req = {};
@@ -391,7 +398,7 @@ int npu_system_put_req(nw_cmd_e nw_cmd)
 	return ret;
 }
 
-int __npu_powerdown(void)
+int npu_system_NW_CMD_POWER_DOWN(void)
 {
 	int ret = 0;
 	nw_cmd_e nw_cmd;
@@ -400,7 +407,7 @@ int __npu_powerdown(void)
 	nw_cmd = NPU_NW_CMD_POWER_DOWN;
 
 	sysPwr.system_result.result_code = NPU_SYSTEM_JUST_STARTED;
-	npu_system_put_req(nw_cmd);
+	npu_system_put_req_nw(nw_cmd);
 	wait_event(sysPwr.wq, sysPwr.system_result.result_code != NPU_SYSTEM_JUST_STARTED);
 	if (sysPwr.system_result.result_code != NPU_ERR_NO_ERROR) {
 		ret = -EINVAL;
@@ -417,7 +424,6 @@ int npu_device_recovery_close(struct npu_device *device)
 
 	int ret = 0;
 
-	ret += proto_drv_close(device);
 	ret += npu_system_close(&device->system);
 	ret += __npu_device_power_off(device);
 	ret += npu_log_close(device);
@@ -449,7 +455,7 @@ int npu_device_close(struct npu_device *device)
 		npu_err("fail(%d) in __npu_device_early_close\n", ret);
 
 	if (!npu_device_is_emergency_err(device)) {
-		ret = __npu_powerdown();
+		ret = npu_system_NW_CMD_POWER_DOWN();
 		if (ret) {
 			npu_err("fail(%d) in __npu_powerdown\n", ret);
 		}
@@ -551,15 +557,11 @@ static int npu_device_runtime_suspend(struct device *dev)
 	struct npu_device *device;
 
 	device = dev_get_drvdata(dev);
-	/*
-	 * If emer_recovery is activated, suspend should not be called
-	 * necessary inner function is already called in sys_resume function.
-	 */
-	if (!test_bit(NPU_DEVICE_ERR_STATE_EMERGENCY, &device->err_state)) {
-		ret = npu_system_suspend(&device->system);
-		if (ret)
-			npu_err("fail(%d) in npu_system_suspend\n", ret);
-	}
+
+	ret = npu_system_suspend(&device->system);
+	if (ret)
+		npu_err("fail(%d) in npu_system_suspend\n", ret);
+
 	npu_info("%s():%d\n", __func__, ret);
 	return ret;
 }

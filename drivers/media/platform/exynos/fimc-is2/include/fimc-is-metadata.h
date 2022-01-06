@@ -44,7 +44,8 @@ struct rational {
 #define CAMERA2_MAX_AVAILABLE_MODE		21
 #define CAMERA2_MAX_FACES			16
 #define CAMERA2_MAX_VENDER_LENGTH		400
-#define CAMERA2_MAX_IPC_VENDER_LENGTH		1056
+#define CAMERA2_AWB_VENDER_LENGTH		415
+#define CAMERA2_MAX_IPC_VENDER_LENGTH		1086
 #define CAMERA2_MAX_PDAF_MULTIROI_COLUMN	13
 #define CAMERA2_MAX_PDAF_MULTIROI_ROW		9
 #define CAMERA2_MAX_UCTL_VENDER_LENGTH		32
@@ -735,6 +736,11 @@ enum aa_capture_intent {
 	AA_CAPTURE_INTENT_STILL_CAPTURE_SUPER_NIGHT_SHOT_TRIPOD,
 	AA_CAPTURE_INTENT_STILL_CAPTURE_CANCEL,
 	AA_CAPTURE_INTENT_STILL_CAPTURE_NORMAL_FLASH,
+	AA_CAPTURE_INTENT_STILL_CAPTURE_REMOSAIC_SINGLE,
+	AA_CAPTURE_INTENT_STILL_CAPTURE_REMOSAIC_MFHDR_DYNAMIC_SHOT,
+	AA_CAPTURE_INTENT_STILL_CAPTURE_LLHDR_VEHDR_DYNAMIC_SHOT,
+	AA_CAPTURE_INTENT_STILL_CAPTURE_VENR_DYNAMIC_SHOT,
+	AA_CAPTURE_INTENT_STILL_CAPTURE_LLS_FLASH,
 };
 
 enum aa_mode {
@@ -767,41 +773,44 @@ enum aa_scene_mode {
 	AA_SCENE_MODE_FACE_PRIORITY_LOW_LIGHT,
 
 	/* vendor feature */
-	AA_SCENE_MODE_NIGHT_CAPTURE = 100,
-	AA_SCENE_MODE_ANTISHAKE,
-	AA_SCENE_MODE_LLS,
-	AA_SCENE_MODE_FDAE,
-	AA_SCENE_MODE_DUAL,
-	AA_SCENE_MODE_DRAMA,
-	AA_SCENE_MODE_ANIMATED,
-	AA_SCENE_MODE_PANORAMA,
-	AA_SCENE_MODE_GOLF,
-	AA_SCENE_MODE_PREVIEW,
-	AA_SCENE_MODE_VIDEO,
-	AA_SCENE_MODE_SLOWMOTION_2,
-	AA_SCENE_MODE_SLOWMOTION_4_8,
-	AA_SCENE_MODE_DUAL_PREVIEW,
-	AA_SCENE_MODE_DUAL_VIDEO,
-	AA_SCENE_MODE_120_PREVIEW,
-	AA_SCENE_MODE_LIGHT_TRACE,
-	AA_SCENE_MODE_FOOD,
-	AA_SCENE_MODE_AQUA,
-	AA_SCENE_MODE_THERMAL,
-	AA_SCENE_MODE_VIDEO_COLLAGE,
-	AA_SCENE_MODE_PRO_MODE,
-	AA_SCENE_MODE_COLOR_IRIS,
-	AA_SCENE_MODE_FACE_LOCK,
-	AA_SCENE_MODE_LIVE_OUTFOCUS,
-	AA_SCENE_MODE_REMOSAIC,
-	AA_SCENE_MODE_SUPER_SLOWMOTION,
-	AA_SCENE_MODE_HYPERLAPSE,
-	AA_SCENE_MODE_FACTORY_LN2,
-	AA_SCENE_MODE_FACTORY_LN4,
-	AA_SCENE_MODE_LABS,
-	AA_SCENE_MODE_SELFI_FOCUS,
-	AA_SCENE_MODE_STICKER,
-	AA_SCENE_MODE_INSTAGRAM,
-	AA_SCENE_MODE_FAST_AE,
+    AA_SCENE_MODE_NIGHT_CAPTURE    = 100,
+    AA_SCENE_MODE_ANTISHAKE        = 101,
+    AA_SCENE_MODE_LLS              = 102,
+    AA_SCENE_MODE_FDAE             = 103,
+    AA_SCENE_MODE_DUAL             = 104,
+    AA_SCENE_MODE_DRAMA            = 105,
+    AA_SCENE_MODE_ANIMATED         = 106,
+    AA_SCENE_MODE_PANORAMA         = 107,
+    AA_SCENE_MODE_GOLF             = 108,
+    AA_SCENE_MODE_PREVIEW          = 109,
+    AA_SCENE_MODE_VIDEO            = 110,
+    AA_SCENE_MODE_SLOWMOTION_2     = 111,
+    AA_SCENE_MODE_SLOWMOTION_4_8   = 112,
+    AA_SCENE_MODE_DUAL_PREVIEW     = 113,
+    AA_SCENE_MODE_DUAL_VIDEO       = 114,
+    AA_SCENE_MODE_120_PREVIEW      = 115,
+    AA_SCENE_MODE_LIGHT_TRACE      = 116,
+    AA_SCENE_MODE_FOOD             = 117,
+    AA_SCENE_MODE_AQUA             = 118,
+    AA_SCENE_MODE_THERMAL          = 119,
+    AA_SCENE_MODE_VIDEO_COLLAGE    = 120,
+    AA_SCENE_MODE_PRO_MODE         = 121,
+    AA_SCENE_MODE_COLOR_IRIS       = 122,
+    AA_SCENE_MODE_FACE_LOCK        = 123,
+    AA_SCENE_MODE_LIVE_OUTFOCUS    = 124,
+    AA_SCENE_MODE_REMOSAIC         = 125,
+    AA_SCENE_MODE_SUPER_SLOWMOTION = 126,
+    AA_SCENE_MODE_HYPERLAPSE       = 127,
+    AA_SCENE_MODE_FACTORY_LN2      = 128,
+    AA_SCENE_MODE_FACTORY_LN4      = 129,
+    AA_SCENE_MODE_LABS             = 130,
+    AA_SCENE_MODE_SELFI_FOCUS      = 131,
+    AA_SCENE_MODE_STICKER          = 132,
+    AA_SCENE_MODE_INSTAGRAM        = 133,
+    AA_SCENE_MODE_FAST_AE          = 134,
+    AA_SCENE_MODE_ILLUMINANCE      = 135,
+    AA_SCENE_MODE_SUPER_NIGHT      = 136,
+    AA_SCENE_MODE_BOKEH_VIDEO      = 137,
 };
 
 enum aa_effect_mode {
@@ -975,6 +984,8 @@ enum awb_state {
 enum aa_videostabilization_mode {
 	VIDEO_STABILIZATION_MODE_OFF = 0,
 	VIDEO_STABILIZATION_MODE_ON,
+	VIDEO_STABILIZATION_MODE_SWVDIS = 100,
+	VIDEO_STABILIZATION_MODE_SUPERSTEADY,
 };
 
 enum aa_isomode {
@@ -1053,6 +1064,18 @@ enum aa_af_scene_change {
 	AA_AF_DETECTED,
 };
 
+enum aa_enable_dynamicshot {
+    AA_DYNAMICSHOT_SIMPLE = 0,
+    AA_DYNAMICSHOT_FULL,
+    AA_DYNAMICSHOT_HDR_ONLY,
+    AA_DYNAMICSHOT_LLS_ONLY,
+};
+
+struct camera2_video_output_size {
+	uint16_t			width;
+	uint16_t			height;
+};
+
 struct camera2_aa_ctl {
 	enum aa_ae_antibanding_mode	aeAntibandingMode;
 	int32_t				aeExpCompensation;
@@ -1092,11 +1115,12 @@ struct camera2_aa_ctl {
 	uint32_t			vendor_captureExposureTime;
 	float				vendor_objectDistanceCm;
 	int32_t				vendor_colorTempKelvin;
-	int32_t				vendor_enableDynamicShotDm;
+	enum aa_enable_dynamicshot	vendor_enableDynamicShotDm;
 	float				vendor_expBracketing[15];
 	float				vendor_expBracketingCapture;
 	enum aa_supernightmode		vendor_superNightShotMode;
-	uint32_t			vendor_reserved[7];
+	struct camera2_video_output_size	vendor_videoOutputSize;
+	uint32_t			vendor_reserved[6];
 };
 
 struct aa_apexInfo {
@@ -1176,13 +1200,17 @@ struct camera2_aa_dm {
 	int32_t				vendor_dynamicShotValue[3];
 	int32_t				vendor_lightConditionValue;
 	int32_t				vendor_dynamicShotExtraInfo;
-	struct aa_apexInfo		vendor_apexInfo;   
+	struct aa_apexInfo		vendor_apexInfo;
 	struct osdInfo			vendor_osdInfo;      
 	int32_t				vendor_drcRatio;    
 	uint32_t			vendor_colorTempIndex; // cu
 	uint32_t			vendor_luxIndex;       
-	uint32_t			vendor_luxStandard;     
-	uint32_t			vendor_reserved[5];
+	uint32_t			vendor_luxStandard;
+	int32_t				vendor_aeStats4VO[8];
+	int32_t				vendor_multiFrameEv;
+	int32_t				vendor_faceToneWeight;
+	float				vendor_noiseIndex;
+	uint32_t			vendor_reserved[7];
 
 	// For dual
 	uint32_t			vendor_wideTeleConvEv;
@@ -1530,7 +1558,7 @@ struct camera2_ae_udm {
 
 struct camera2_awb_udm {
 	uint32_t	vsLength;
-	uint32_t	vendorSpecific[CAMERA2_MAX_VENDER_LENGTH];
+	uint32_t	vendorSpecific[CAMERA2_AWB_VENDER_LENGTH];
 
 	/** vendor specific2 length */
 	uint32_t	vs2Length;
@@ -1726,6 +1754,8 @@ enum camera_op_mode {
 	CAMERA_OP_MODE_HAL3_TW,
 	CAMERA_OP_MODE_FAC,
 	CAMERA_OP_MODE_HAL3_FAC,
+	CAMERA_OP_MODE_HAL3_SDK,
+	CAMERA_OP_MODE_HAL3_CAMERAX,
 };
 
 struct camera2_pdaf_single_result {
@@ -1941,6 +1971,23 @@ enum camera_motion_state {
 	CAMERA_MOTION_MOVING,
 };
 
+enum camera_client_index {
+	CAMERA_APP_CATEGORY_NONE = 0,
+	CAMERA_APP_CATEGORY_FACEBOOK = 1,
+	CAMERA_APP_CATEGORY_WECHAT = 2,
+	CAMERA_APP_CATEGORY_SNAPCHAT = 3,
+	CAMERA_APP_CATEGORY_TWITTER = 4,
+	CAMERA_APP_CATEGORY_INSTAGRAM = 5,
+	CAMERA_APP_CATEGORY_3P_VT = 6,
+	CAMERA_APP_CATEGORY_MAX
+};
+
+enum remosaic_oper_mode {
+	REMOSAIC_OPER_MODE_NONE = 0,
+	REMOSAIC_OPER_MODE_SINGLE = 1,
+	REMOSAIC_OPER_MODE_MFHDR = 2,
+};
+
 /** \brief
   User-defined control area.
   \remarks
@@ -1989,8 +2036,10 @@ struct camera2_uctl {
 	struct camera2_gmv_uctl		gmvUd;
 	int32_t				productColorInfo;
 	uint8_t				countryCode[4];
-	enum camera_motion_state		motionState;
-	uint32_t			reserved[8];
+	enum camera_motion_state	motionState;
+	enum camera_client_index	cameraClientIndex;
+	int32_t 			remosaicResolutionMode;
+	uint32_t			reserved[6];
 };
 
 struct camera2_udm {

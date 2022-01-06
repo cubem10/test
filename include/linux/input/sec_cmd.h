@@ -12,8 +12,8 @@
 #include <linux/input.h>
 #include <linux/sched/clock.h>
 
-#ifdef CONFIG_SEC_SYSFS
-#include <linux/sec_sysfs.h>
+#ifdef CONFIG_DRV_SAMSUNG
+#include <linux/sec_class.h>
 #endif
 
 #ifndef CONFIG_SEC_FACTORY
@@ -21,17 +21,19 @@
 #include <linux/kfifo.h>
 #endif
 
-#ifndef CONFIG_SEC_SYSFS
+#ifndef CONFIG_DRV_SAMSUNG
 extern struct class *sec_class;
 #endif
 
 #define SEC_CLASS_DEVT_TSP		10
 #define SEC_CLASS_DEVT_TKEY		11
 #define SEC_CLASS_DEVT_WACOM		12
+#define SEC_CLASS_DEVT_SIDEKEY		13
 
 #define SEC_CLASS_DEV_NAME_TSP		"tsp"
 #define SEC_CLASS_DEV_NAME_TKEY		"sec_touchkey"
 #define SEC_CLASS_DEV_NAME_WACOM	"sec_epen"
+#define SEC_CLASS_DEV_NAME_SIDEKEY	"sec_sidekey"
 
 #define SEC_CMD(name, func)		.cmd_name = name, .cmd_func = func
 #define SEC_CMD_H(name, func)		.cmd_name = name, .cmd_func = func, .cmd_log = 1
@@ -73,8 +75,9 @@ struct sec_cmd_data {
 	int			cmd_param[SEC_CMD_PARAM_NUM];
 	char			cmd_result[SEC_CMD_RESULT_STR_LEN];
 	int			cmd_buffer_size;
-	bool			cmd_is_running;
+	volatile bool		cmd_is_running;
 	struct mutex		cmd_lock;
+	struct mutex		fs_lock;
 #ifdef USE_SEC_CMD_QUEUE
 	struct kfifo		cmd_queue;
 	struct mutex		fifo_lock;

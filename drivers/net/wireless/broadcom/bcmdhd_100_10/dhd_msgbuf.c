@@ -26,7 +26,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_msgbuf.c 797291 2018-12-31 06:01:30Z $
+ * $Id: dhd_msgbuf.c 825812 2019-06-17 12:08:59Z $
  */
 
 #include <typedefs.h>
@@ -69,6 +69,7 @@
 
 #ifdef DHD_PKT_LOGGING
 #include <dhd_pktlog.h>
+#include <dhd_linux_pktdump.h>
 #endif /* DHD_PKT_LOGGING */
 #ifdef DHD_EWPR_VER2
 #include <dhd_bitpack.h>
@@ -6385,10 +6386,16 @@ workq_ring_full:
 			ltoh16(txstatus->compl_hdr.status) & WLFC_CTL_PKTFLAG_MASK);
 #ifdef DHD_PKT_LOGGING
 	if (dhd->d11_tx_status) {
-		DHD_PKTLOG_TXS(dhd, pkt, pktid,
-			ltoh16(txstatus->compl_hdr.status) & WLFC_CTL_PKTFLAG_MASK);
+		uint16 status = ltoh16(txstatus->compl_hdr.status) &
+			WLFC_CTL_PKTFLAG_MASK;
+		uint32 pkthash = __dhd_dbg_pkt_hash((uintptr_t)pkt, pktid);
+		DHD_PKTLOG_TXS(dhd, pkt, pktid, status);
+		dhd_dump_pkt(dhd, ltoh32(txstatus->cmn_hdr.if_id),
+			(uint8 *)PKTDATA(dhd->osh, pkt), len, TRUE,
+			&pkthash, &status);
 	}
 #endif /* DHD_PKT_LOGGING */
+
 #if defined(BCMPCIE)
 	dhd_txcomplete(dhd, pkt, pkt_fate);
 #ifdef DHD_4WAYM4_FAIL_DISCONNECT
@@ -6583,6 +6590,9 @@ dhd_prot_txdata(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 	msgbuf_ring_t *ring;
 	flow_ring_table_t *flow_ring_table;
 	flow_ring_node_t *flow_ring_node;
+#ifdef DHD_PKT_LOGGING
+	uint32 pkthash;
+#endif /* DHD_PKT_LOGGING */
 
 	if (dhd->flow_ring_table == NULL) {
 		DHD_ERROR(("dhd flow_ring_table is NULL\n"));
@@ -6622,14 +6632,17 @@ dhd_prot_txdata(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 		goto err_free_pktid;
 	}
 
-	DHD_DBG_PKT_MON_TX(dhd, PKTBUF, pktid);
-#ifdef DHD_PKT_LOGGING
-	DHD_PKTLOG_TX(dhd, PKTBUF, pktid);
-#endif /* DHD_PKT_LOGGING */
-
 	/* Extract the data pointer and length information */
 	pktdata = PKTDATA(dhd->osh, PKTBUF);
 	pktlen  = PKTLEN(dhd->osh, PKTBUF);
+
+	DHD_DBG_PKT_MON_TX(dhd, PKTBUF, pktid);
+#ifdef DHD_PKT_LOGGING
+	DHD_PKTLOG_TX(dhd, PKTBUF, pktid);
+	/* Dump TX packet */
+	pkthash = __dhd_dbg_pkt_hash((uintptr_t)PKTBUF, pktid);
+	dhd_dump_pkt(dhd, ifidx, pktdata, pktlen, TRUE, &pkthash, NULL);
+#endif /* DHD_PKT_LOGGING */
 
 	/* Ethernet header: Copy before we cache flush packet using DMA_MAP */
 	bcopy(pktdata, txdesc->txhdr, ETHER_HDR_LEN);
@@ -7477,7 +7490,7 @@ dhd_msgbuf_iovar_timeout_dump(dhd_pub_t *dhd)
 		dhd->rxcnt_timeout, prot->curr_ioctl_cmd, prot->ioctl_trans_id,
 		prot->ioctl_state, dhd->busstate, prot->ioctl_received));
 #if defined(DHD_KERNEL_SCHED_DEBUG) && defined(DHD_FW_COREDUMP)
-		if (dhd->is_sched_error && dhd->memdump_enabled) {
+		if (dhd->is_sched_error && dhd->memdump_enabled == DUMP_MEMFILE_BUGON) {
 			/* change g_assert_type to trigger Kernel panic */
 			g_assert_type = 2;
 			/* use ASSERT() to trigger panic */
@@ -7485,11 +7498,6 @@ dhd_msgbuf_iovar_timeout_dump(dhd_pub_t *dhd)
 		}
 #endif /* DHD_KERNEL_SCHED_DEBUG && DHD_FW_COREDUMP */
 
-#ifdef DNGL_AXI_ERROR_LOGGING
-	if (dhd->axierror_logbuf_addr && !dhd->axi_error) {
-		dhd_axi_error(dhd);
-	}
-#endif /* DNGL_AXI_ERROR_LOGGING */
 	if (prot->curr_ioctl_cmd == WLC_SET_VAR ||
 			prot->curr_ioctl_cmd == WLC_GET_VAR) {
 		char iovbuf[32];
@@ -9161,7 +9169,7 @@ dhd_prot_flow_ring_create(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 		dhd_prot_flowrings_pool_release(dhd, flow_ring_node->flowid, flow_ring);
 		DHD_ERROR(("%s: Flow Create Req flowid %d - failure ring space\n",
 			__FUNCTION__, flow_ring_node->flowid));
-		DHD_RING_LOCK(ctrl_ring->ring_lock, flags);
+		DHD_RING_UNLOCK(ctrl_ring->ring_lock, flags);
 		return BCME_NOMEM;
 	}
 
@@ -9827,7 +9835,9 @@ static hang_info_trap_t hang_info_trap_tbl[] = {
 #endif /* DHD_EWPR_VER2 */
 
 #define TAG_TRAP_IS_STATE(tag) \
-	((tag == TAG_TRAP_MEMORY) || (tag == TAG_TRAP_PCIE_Q) || (tag == TAG_TRAP_WLC_STATE))
+	((tag == TAG_TRAP_MEMORY) || (tag == TAG_TRAP_PCIE_Q) || \
+	(tag == TAG_TRAP_WLC_STATE) || (tag == TAG_TRAP_LOG_DATA) || \
+	(tag == TAG_TRAP_CODE))
 
 static void
 copy_hang_info_head(char *dest, trap_t *src, int len, int field_name,
@@ -10249,6 +10259,11 @@ dhd_prot_debug_info_print(dhd_pub_t *dhd)
 	DHD_ERROR(("\n ------- DUMPING VERSION INFORMATION ------- \r\n"));
 	DHD_ERROR(("DHD: %s\n", dhd_version));
 	DHD_ERROR(("Firmware: %s\n", fw_version));
+
+#ifdef DHD_FW_COREDUMP
+	DHD_ERROR(("\n ------- DUMPING CONFIGURATION INFORMATION ------ \r\n"));
+	DHD_ERROR(("memdump mode: %d\n", dhd->memdump_enabled));
+#endif /* DHD_FW_COREDUMP */
 
 	DHD_ERROR(("\n ------- DUMPING PROTOCOL INFORMATION ------- \r\n"));
 	DHD_ERROR(("ICPrevs: Dev %d, Host %d, active %d\n",
@@ -11487,3 +11502,25 @@ dhd_update_hp2p_txdesc(dhd_pub_t *dhd, host_txbuf_post_t *txdesc)
 	return;
 }
 #endif /* DHD_HP2P */
+
+#ifdef DHD_MAP_LOGGING
+void
+dhd_prot_smmu_fault_dump(dhd_pub_t *dhdp)
+{
+	dhd_prot_debug_info_print(dhdp);
+	OSL_DMA_MAP_DUMP(dhdp->osh);
+#ifdef DHD_MAP_PKTID_LOGGING
+	dhd_pktid_logging_dump(dhdp);
+#endif /* DHD_MAP_PKTID_LOGGING */
+#ifdef DHD_FW_COREDUMP
+	dhdp->memdump_type = DUMP_TYPE_SMMU_FAULT;
+#ifdef DNGL_AXI_ERROR_LOGGING
+	dhdp->memdump_enabled = DUMP_MEMFILE;
+	dhd_bus_get_mem_dump(dhdp);
+#else
+	dhdp->memdump_enabled = DUMP_MEMONLY;
+	dhd_bus_mem_dump(dhdp);
+#endif /* DNGL_AXI_ERROR_LOGGING */
+#endif /* DHD_FW_COREDUMP */
+}
+#endif /* DHD_MAP_LOGGING */

@@ -41,6 +41,7 @@ typedef enum {
 	NPU_NW_CMD_PROFILE_START,
 	NPU_NW_CMD_PROFILE_STOP,
 	NPU_NW_CMD_FW_TC_EXECUTE,
+	NPU_NW_CMD_CLEAR_CB,
 	NPU_NW_CMD_END,
 } nw_cmd_e;
 
@@ -133,12 +134,12 @@ struct npu_frame {
 	frame_cmd_e		cmd;
 	struct npu_time_constraints	time_limits;
 	int			priority;
-	struct npu_queue *src_queue;
+	struct npu_queue	*src_queue;
 	struct vb_container_list *input;
 	struct vb_container_list *output;
 	u32			reserved[8];
 	u32			magic_tail;
-	struct mbox_process_dat *mbox_process_dat;
+	struct mbox_process_dat mbox_process_dat;
 	int msgid;
 };
 
@@ -162,5 +163,31 @@ typedef enum {
 	S_PARAM_HANDLED,
 	S_PARAM_ERROR,
 } npu_s_param_ret;
+
+/* Structure to keep iomem mapped area */
+struct npu_iomem_area {
+	void __iomem            *vaddr;
+	u32                     paddr;
+	resource_size_t         size;
+};
+
+/*
+ * Convinient macros
+ */
+
+/* Used for clean-up routines */
+#define BIT_CHECK_AND_EXECUTE(BIT, VAR_R, DESC, CODE)           \
+do {                                                            \
+	const char *__desc = DESC;                              \
+	if (test_bit((BIT), (VAR_R))) {                         \
+		if (__desc)                                     \
+			npu_info("%s started.\n", __desc);      \
+		CODE                                            \
+	} else {                                                \
+		if (__desc)                                     \
+			npu_info("%s skipped.\n", __desc);      \
+	}                                                       \
+	clear_bit((BIT), (VAR_R));                              \
+} while (0)
 
 #endif	/* _NPU_COMMON_H_ */

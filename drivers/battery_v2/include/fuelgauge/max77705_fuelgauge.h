@@ -60,6 +60,7 @@ ssize_t max77705_fg_store_attrs(struct device *dev,
 	.show = max77705_fg_show_attrs,			\
 	.store = max77705_fg_store_attrs,			\
 }
+
 struct sec_fg_info {
 	/* test print count */
 	int pr_cnt;
@@ -184,8 +185,10 @@ struct max77705_fuelgauge_data {
 
 	unsigned int capacity_old;	/* only for atomic calculation */
 	unsigned int capacity_max;	/* only for dynamic calculation */
+	unsigned int g_capacity_max;	/* only for dynamic calculation */
 	unsigned int standard_capacity;
 
+	bool capacity_max_conv;
 	bool initial_update_of_soc;
 	bool sleep_initial_update_of_soc;	
 	struct mutex fg_lock;

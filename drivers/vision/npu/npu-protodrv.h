@@ -157,6 +157,8 @@ struct npu_proto_drv {
 	struct msgid_pool		msgid_pool;
 	/* Q structures between session (for debugging purpose) */
 	const struct npu_if_session_protodrv_ctx *if_session_ctx;
+	/* Reference of npu_device */
+	struct npu_device		*npu_device;
 	/* Reference of mbox interface */
 	struct npu_if_protodrv_mbox_ctx *if_mbox_ctx;
 	/* Session reference */

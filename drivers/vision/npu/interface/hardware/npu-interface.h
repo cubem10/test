@@ -30,9 +30,10 @@
 #define TRY_CNT	100
 #define QSIZE	100
 #define BUFSIZE		1024
-#define FW_LOGSIZE	(1024 * 256)
+#define FW_LOGSIZE	(1024 * 128)
 #define TRUE		1
 #define FALSE		0
+#define LENGTHOFEVIDENCE 128
 
 #define IOR8(port)            readb((const volatile void *)&port)
 #define IOR16(port)           readw((const volatile void *)&port)
@@ -53,11 +54,16 @@ struct npu_interface {
 	struct mutex lock;
 };
 
-//struct npu_system;
+enum numCtrl_e {
+	ECTRL_LOW = 1,
+	ECTRL_HIGH,
+	ECTRL_ACK,
+	ECTRL_REPORT,
+};
 
-int npu_interface_probe(struct device *dev, void *regs,	u32 irq2, u32 irq3);
+int npu_interface_probe(struct device *dev, void *regs);
 int npu_interface_open(struct npu_system *system);
-int npu_interface_close(void);
+int npu_interface_close(struct npu_system *system);
 
 int nw_req_manager(int msgid, struct npu_nw *nw);
 int fr_req_manager(int msgid, struct npu_frame *frame);
@@ -69,5 +75,5 @@ int register_msgid_get_type(int (*msgid_get_type_func)(int));
 int register_rslt_notifier(protodrv_notifier);
 void fw_rprt_manager(void);
 int mbx_rslt_fault_listener(void);
-//void npu_interface_release(void);
+int npu_check_unposted_mbox(int nCtrl);
 #endif

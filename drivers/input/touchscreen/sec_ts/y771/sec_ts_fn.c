@@ -51,6 +51,7 @@ static void run_self_raw_p2p_avg_read_all(void *device_data);
 static void run_self_raw_p2p_diff_read_all(void *device_data);
 static void run_rawdata_read_all(void *device_data);
 static void run_force_calibration(void *device_data);
+static void run_miscalibration(void *device_data);
 static void get_force_calibration(void *device_data);
 static void get_gap_data_x_all(void *device_data);
 static void get_gap_data_y_all(void *device_data);
@@ -145,6 +146,7 @@ static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD("run_self_raw_p2p_avg_read_all", run_self_raw_p2p_avg_read_all),},
 	{SEC_CMD("run_self_raw_p2p_diff_read_all", run_self_raw_p2p_diff_read_all),},
 	{SEC_CMD("run_rawdata_read_all_for_ghost", run_rawdata_read_all),},
+	{SEC_CMD("run_miscalibration", run_miscalibration),},
 	{SEC_CMD("run_force_calibration", run_force_calibration),},
 	{SEC_CMD("get_force_calibration", get_force_calibration),},
 	{SEC_CMD("get_gap_data_x_all", get_gap_data_x_all),},
@@ -5112,6 +5114,84 @@ int sec_tclm_execute_force_calibration(struct i2c_client *client, int cal_mode)
 	return rc;
 }
 
+static void run_miscalibration(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[SEC_CMD_STR_LEN] = {0};
+	int rc;
+	u8 mBuff[3] = { 0x32, 0x00, 0x00 };
+	u8 result[2] = { 0, 0 };
+
+	sec_cmd_set_default_result(sec);
+
+	disable_irq(ts->client->irq);
+
+	if (ts->power_status == SEC_TS_STATE_POWER_OFF)
+		goto err;
+
+	rc = sec_ts_fix_tmode(ts, TOUCH_SYSTEM_MODE_TOUCH, TOUCH_MODE_STATE_TOUCH);
+
+	if (rc < 0) {
+		input_err(true, &ts->client->dev, "%s: sec_ts_fix_tmode failed\n", __func__);
+		goto err;
+	}
+
+	sec_ts_delay(10);
+
+	rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_MISCAL_THD, mBuff, sizeof(mBuff));
+	if (rc < 0) {
+		input_err(true, &ts->client->dev, "%s: SEC_TS_CMD_SET_MISCALIBRATIONTEST failed\n", __func__);
+		goto err;
+	}
+
+	sec_ts_delay(10);
+
+	rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_RUN_MISCAL, NULL, 0);
+	if (rc < 0) {
+		input_err(true, &ts->client->dev, "%s: SEC_TS_CMD_MISALIBRATIONTEST failed\n", __func__);
+		goto err;
+	}
+
+	sec_ts_delay(200);
+
+	rc = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_GET_MISCAL_RESULT, result, sizeof(result));
+	if (rc < 0) {
+		input_err(true, &ts->client->dev, "%s: SEC_TS_CMD_GET_MISCALBRATION failed\n", __func__);
+		goto err;
+	}
+
+	sec_ts_delay(10);
+
+	rc = sec_ts_release_tmode(ts);
+	if (rc < 0) {
+		input_err(true, &ts->client->dev, "%s: SEC_TS_CMD_STATEMANAGE_ON failed\n", __func__);
+		goto err;
+	}
+
+	if (result[0]) {
+		enable_irq(ts->client->irq);
+		snprintf(buff, sizeof(buff), "%d", result[1]);
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+		return;
+	}
+
+	enable_irq(ts->client->irq);
+	snprintf(buff, sizeof(buff), "OK");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	return;
+
+err:
+	enable_irq(ts->client->irq);
+	snprintf(buff, sizeof(buff), "NG");
+	sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+
+	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
+}
+
 static void run_force_calibration(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
@@ -5323,41 +5403,49 @@ NG:
 	sec_cmd_set_cmd_exit(sec);
 }
 
-static void set_temperature(void *device_data)
+int sec_ts_set_temp(struct sec_ts_data *ts)
 {
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = { 0 };
 	int ret = 0;
 	u8 temp_data = 0;
-
-	sec_cmd_set_default_result(sec);
-
-	if (sec->cmd_param[0] != 1)
-		goto NG;
 
 	if (!ts->psy)
 		ts->psy = power_supply_get_by_name("battery");
 
 	if (!ts->psy) {
 		input_err(true, &ts->client->dev, "%s: Cannot find power supply\n", __func__);
-		goto NG;
+		return -1;
 	}
 
 	ret = power_supply_get_property(ts->psy, POWER_SUPPLY_PROP_TEMP, &ts->psy_value);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: Couldn't get aicl settled value ret=%d\n", __func__, ret);
-		goto NG;
+		return ret;
 	}
 
 	temp_data = (u8)(ts->psy_value.intval / 10);
 	ret = ts->sec_ts_i2c_write(ts, SET_TS_CMD_SET_LOWTEMPERATURE_MODE, &temp_data, 1);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev,
-		"%s: Failed to write\n", __func__);
-		goto NG;
+		input_err(true, &ts->client->dev, "%s: Failed to write\n", __func__);
+		return ret;
 	}
+
 	input_info(true, &ts->client->dev, "%s temperature:%d\n", __func__, (s8)temp_data);
+
+	return ret;
+}
+
+static void set_temperature(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[SEC_CMD_STR_LEN] = { 0 };
+	int ret = 0;
+
+	sec_cmd_set_default_result(sec);
+
+	ret = sec_ts_set_temp(ts);
+	if (ret < 0)
+		goto NG;
 	
 	snprintf(buff, sizeof(buff), "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
@@ -5628,11 +5716,13 @@ static void fod_enable(void *device_data)
 	else
 		ts->lowpower_mode &= ~SEC_TS_MODE_SPONGE_PRESS;
 
-	ts->press_prop = !!sec->cmd_param[1];
+	ts->press_prop = (sec->cmd_param[1] & 0x01) | ((sec->cmd_param[2] & 0x01) << 1);
 
-	input_info(true, &ts->client->dev, "%s: %s, fast:%d, %02X\n",
+	input_info(true, &ts->client->dev, "%s: %s, fast:%s, strict:%s, %02X\n",
 			__func__, sec->cmd_param[0] ? "on" : "off",
-			ts->press_prop, ts->lowpower_mode);
+			ts->press_prop & 1 ? "on" : "off",
+			ts->press_prop & 2 ? "on" : "off",
+			ts->lowpower_mode);
 
 	mutex_lock(&ts->modechange);
 	if (ts->input_closed && !ts->lowpower_mode && !ts->ed_enable) {

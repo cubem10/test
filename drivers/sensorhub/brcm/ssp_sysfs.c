@@ -40,12 +40,14 @@ s32 SettingVDIS_Support(struct ssp_data *data, int64_t *dNewDelay)
 	int64_t NewDelay = *dNewDelay;
 
 	if ((NewDelay == CAMERA_GYROSCOPE_SYNC || NewDelay == CAMERA_GYROSCOPE_VDIS_SYNC
-		|| NewDelay == CAMERA_GYROSCOPE_SUPER_VDIS_SYNC) && !data->IsVDIS_Enabled) {
+		|| NewDelay == CAMERA_GYROSCOPE_SUPER_VDIS_SYNC
+		|| NewDelay == CAMERA_GYROSCOPE_ULTRA_VDIS_SYNC) && !data->IsVDIS_Enabled) {
 		data->IsVDIS_Enabled = true;
 		data->ts_stacked_cnt = 0;
 		send_vdis_flag(data, data->IsVDIS_Enabled);
 	} else if (!(NewDelay == CAMERA_GYROSCOPE_SYNC || NewDelay == CAMERA_GYROSCOPE_VDIS_SYNC
-		|| NewDelay == CAMERA_GYROSCOPE_SUPER_VDIS_SYNC) && data->IsVDIS_Enabled) {
+		|| NewDelay == CAMERA_GYROSCOPE_SUPER_VDIS_SYNC
+		|| NewDelay == CAMERA_GYROSCOPE_ULTRA_VDIS_SYNC) && data->IsVDIS_Enabled) {
 		data->IsVDIS_Enabled = false;
 		data->ts_stacked_cnt = 0;
 		send_vdis_flag(data, data->IsVDIS_Enabled);
@@ -58,6 +60,10 @@ s32 SettingVDIS_Support(struct ssp_data *data, int64_t *dNewDelay)
 		data->cameraGyroSyncMode = true;
 	} else if (NewDelay == CAMERA_GYROSCOPE_SUPER_VDIS_SYNC) {
 		*dNewDelay = CAMERA_GYROSCOPE_SUPER_VDIS_SYNC_DELAY;
+		data->cameraGyroSyncMode = true;
+		initialize_super_vdis_setting();
+	} else if (NewDelay == CAMERA_GYROSCOPE_ULTRA_VDIS_SYNC) {
+		*dNewDelay = CAMERA_GYROSCOPE_ULTRA_VDIS_SYNC_DELAY;
 		data->cameraGyroSyncMode = true;
 		initialize_super_vdis_setting();
 	} else {
@@ -593,13 +599,32 @@ static ssize_t set_mcu_power(struct device *dev,
 static ssize_t set_ssp_control(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t size)
 {
+	struct ssp_data *data = dev_get_drvdata(dev);
+	int iRet = 0;
+
 	pr_info("[SSP] SSP_CONTROL : %s\n", buf);
 
 	if (strstr(buf, SSP_DEBUG_TIME_FLAG_ON))
 		ssp_debug_time_flag = true;
 	else if (strstr(buf, SSP_DEBUG_TIME_FLAG_OFF))
 		ssp_debug_time_flag = false;
+	else if (strstr(buf, SSP_HALL_IC_ON)
+ 		|| strstr(buf, SSP_HALL_IC_OFF)) {
 
+		data->hall_ic_status = strstr(buf, SSP_HALL_IC_ON) ? 1 : 0;
+	
+		iRet = send_hall_ic_status(data->hall_ic_status);
+
+		if (iRet != SUCCESS) {
+			pr_err("[SSP]: %s - hall ic command, failed %d\n", __func__, iRet);
+			return iRet;
+		}
+
+		pr_info("[SSP] %s HALL IC ON/OFF, %d enabled %d\n",
+			__func__, iRet, data->hall_ic_status);
+
+	}
+	
 	return size;
 }
 
@@ -632,6 +657,8 @@ static ssize_t sensor_dump_show(struct device *dev,
 		ret = snprintf(buf, (int)strlen(sensor_dump)+1, "%s\n", sensor_dump);
 
 	kfree(sensor_dump);
+
+	pr_info("[SSP]: %s, f/w version: BR01%u,BR01%u\n", __func__, get_module_rev(data), data->uCurFirmRev);
 
 	return ret;
 }

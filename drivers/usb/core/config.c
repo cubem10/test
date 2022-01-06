@@ -222,10 +222,14 @@ static int usb_parse_endpoint(struct device *ddev, int cfgno, int inum,
 		if ((d->bmAttributes & 0x30) == 0x00) {
 			/* Data Stream Endpoint only */
 			if (d->bEndpointAddress & USB_ENDPOINT_DIR_MASK) {
-				to_usb_device(ddev)->hwinfo.in_ep =
-					d->bEndpointAddress;
-				dev_info(ddev, " This is IN ISO endpoint #0%x 0x%p\n",
-					d->bEndpointAddress, d->bSynchAddress);
+				if (d->bEndpointAddress != to_usb_device(ddev)->hwinfo.fb_in_ep) {
+					to_usb_device(ddev)->hwinfo.in_ep =
+						d->bEndpointAddress;
+					dev_info(ddev, " This is IN ISO endpoint #0%x 0x%p\n",
+						d->bEndpointAddress, d->bSynchAddress);
+				} else
+					dev_info(ddev, "IN ISO endpoint is same with FB #0%x\n",
+						d->bEndpointAddress);
 				if ((d->bLength > 7) && (d->bSynchAddress != 0x0)) {
 					to_usb_device(ddev)->hwinfo.fb_out_ep =
 						d->bSynchAddress;
@@ -233,6 +237,7 @@ static int usb_parse_endpoint(struct device *ddev, int cfgno, int inum,
 						d->bEndpointAddress, d->bSynchAddress);
 				}
 			} else {
+
 				to_usb_device(ddev)->hwinfo.out_ep =
 					d->bEndpointAddress;
 				dev_info(ddev, " This is OUT ISO endpoint #0%x 0x%p\n",

@@ -27,7 +27,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_proto.h 797247 2018-12-31 03:08:13Z $
+ * $Id: dhd_proto.h 799965 2019-01-18 06:55:56Z $
  */
 
 #ifndef _dhd_proto_h_
@@ -226,4 +226,7 @@ extern uint32 dhd_prot_time_threshold(dhd_pub_t *dhd, bool set, uint32 val);
 extern uint32 dhd_prot_pkt_expiry(dhd_pub_t *dhd, bool set, uint32 val);
 #endif // endif
 
+#ifdef DHD_MAP_LOGGING
+extern void dhd_prot_smmu_fault_dump(dhd_pub_t *dhdp);
+#endif /* DHD_MAP_LOGGING */
 #endif /* _dhd_proto_h_ */

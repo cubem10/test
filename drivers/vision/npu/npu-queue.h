@@ -39,7 +39,7 @@ struct npu_queue {
 int npu_queue_open(struct npu_queue *queue, struct npu_memory *memory, struct mutex *lock);
 int npu_queue_s_format(struct npu_queue *queue, struct vs4l_format_list *f);
 int npu_queue_start(struct npu_queue *queue);
-int npu_queue_stop(struct npu_queue *queue);
+int npu_queue_stop(struct npu_queue *queue, int is_forced);
 int npu_queue_poll(struct npu_queue *queue, struct file *file, poll_table *poll);
 int npu_queue_qbuf(struct npu_queue *queue, struct vs4l_container_list *c);
 int npu_queue_dqbuf(struct npu_queue *queue, struct vs4l_container_list *c, bool nonblocking);

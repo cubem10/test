@@ -153,6 +153,7 @@ int vb_queue_init(struct vb_queue *q, void *alloc_ctx, const struct vb2_mem_ops 
 int vb_queue_s_format(struct vb_queue *q, struct vs4l_format_list *f);
 int vb_queue_start(struct vb_queue *q);
 int vb_queue_stop(struct vb_queue *q);
+int vb_queue_stop_forced(struct vb_queue *q);
 int vb_queue_qbuf(struct vb_queue *q, struct vs4l_container_list *c);
 int vb_queue_dqbuf(struct vb_queue *q, struct vs4l_container_list *c, bool nonblocking);
 int vb_queue_prepare(struct vb_queue *q, struct vs4l_container_list *c);

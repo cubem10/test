@@ -96,6 +96,7 @@ static ssize_t npu_sysfs_show_qos(struct device *dev,
 	char		tmp_buf[256];
 	int		tmp_size;
 	unsigned long	freq = 0;
+
 	buf[0] = 0;
 
 	if (!qos_setting) {
@@ -242,6 +243,7 @@ int npu_qos_release(struct npu_system *system)
 
 int npu_qos_start(struct npu_system *system)
 {
+	int cur_value;
 
 	BUG_ON(!system);
 
@@ -254,9 +256,9 @@ int npu_qos_start(struct npu_system *system)
 		pm_qos_update_request(&qos_setting->npu_qos_req_npu, qos_setting->current_freq);
 #endif
 	mutex_unlock(&qos_setting->npu_qos_lock);
-
-	npu_info("%s() npu_qos_rate(%d)\n", __func__,
-			qos_setting->current_freq);
+	cur_value = (s32)pm_qos_read_req_value(qos_setting->npu_qos_req_npu.pm_qos_class,
+		&qos_setting->npu_qos_req_npu);
+	npu_info("%s() npu_qos_rate(%d)\n", __func__, cur_value);
 	qos_setting->req_cl0_freq = 0;
 	qos_setting->req_cl1_freq = 0;
 	qos_setting->req_cl2_freq = 0;
@@ -267,6 +269,7 @@ int npu_qos_stop(struct npu_system *system)
 {
 	struct list_head *pos, *q;
 	struct npu_session_qos_req *qr;
+	int cur_value;
 
 	BUG_ON(!system);
 
@@ -290,8 +293,9 @@ int npu_qos_stop(struct npu_system *system)
 #endif
 	qos_setting->req_npu_freq = 0;
 	mutex_unlock(&qos_setting->npu_qos_lock);
-
-	npu_info("%s() npu_qos_rate(%d)\n", __func__, NPU_PM_NPU_MIN);
+	cur_value = (s32)pm_qos_read_req_value(qos_setting->npu_qos_req_npu.pm_qos_class,
+		&qos_setting->npu_qos_req_npu);
+	npu_info("%s() npu_qos_rate(%d)\n", __func__, cur_value);
 
 	return 0;
 }
