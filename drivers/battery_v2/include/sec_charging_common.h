@@ -119,10 +119,16 @@ enum power_supply_ext_property {
 	POWER_SUPPLY_EXT_PROP_DIRECT_ADC_CTRL,
 	POWER_SUPPLY_EXT_PROP_DIRECT_POWER_TYPE,
 	POWER_SUPPLY_EXT_PROP_DIRECT_HV_PDO,
+	POWER_SUPPLY_EXT_PROP_DIRECT_HAS_APDO,
 	POWER_SUPPLY_EXT_PROP_DIRECT_TA_ALERT,
+	POWER_SUPPLY_EXT_PROP_DIRECT_CLEAR_ERR,
+	POWER_SUPPLY_EXT_PROP_CHANGE_CHARGING_SOURCE,
+	POWER_SUPPLY_EXT_PROP_DIRECT_SEND_UVDM,
 #endif
 	POWER_SUPPLY_EXT_PROP_SRCCAP,
 	POWER_SUPPLY_EXT_PROP_CHARGE_BOOST,
+	POWER_SUPPLY_EXT_PROP_WPC_EN,
+	POWER_SUPPLY_EXT_PROP_WPC_EN_MST,
 };
 
 enum rx_device_type {
@@ -445,6 +451,15 @@ enum sec_battery_measure_input {
 	SEC_BATTERY_VIN_UA,
 };
 
+enum sec_battery_wpc_en_ctrl {
+	WPC_EN_SYSFS = 0x1,
+	WPC_EN_CCIC = 0x2,
+	WPC_EN_CHARGING = 0x4,
+	WPC_EN_TX = 0x8,
+	WPC_EN_MST = 0x10,
+	WPC_EN_FW = 0x20,
+};
+
 /* tx_event */
 #define BATT_TX_EVENT_WIRELESS_TX_STATUS		0x00000001
 #define BATT_TX_EVENT_WIRELESS_RX_CONNECT		0x00000002
@@ -479,6 +494,7 @@ enum sec_battery_measure_input {
 #define SEC_BAT_TX_RETRY_MIX_TEMP		0x0008
 #define SEC_BAT_TX_RETRY_HIGH_TEMP		0x0010
 #define SEC_BAT_TX_RETRY_LOW_TEMP		0x0020
+#define SEC_BAT_TX_RETRY_OCP			0x0040
 
 /* ext_event */
 #define BATT_EXT_EVENT_NONE			0x00000000
@@ -887,9 +903,15 @@ struct sec_battery_platform_data {
 	int swelling_low_temp_recov_2nd;
 	int swelling_low_temp_block_3rd;
 	int swelling_low_temp_recov_3rd;
+	int swelling_low_temp_block_4th;
+	int swelling_low_temp_recov_4th;
+	int swelling_low_temp_block_5th;
+	int swelling_low_temp_recov_5th;
 	unsigned int swelling_low_temp_current;
 	unsigned int swelling_low_temp_current_2nd;
 	unsigned int swelling_low_temp_current_3rd;
+	unsigned int swelling_low_temp_current_4th;
+	unsigned int swelling_low_temp_current_5th;
 	unsigned int swelling_low_temp_topoff;
 	unsigned int swelling_high_temp_current;
 	unsigned int swelling_high_temp_topoff;
@@ -923,12 +945,12 @@ struct sec_battery_platform_data {
 	unsigned int *step_charging_float_voltage;
 #if defined(CONFIG_DIRECT_CHARGING)
 	unsigned int *dc_step_chg_cond_vol;
-	unsigned int *dc_step_chg_cond_soc;
+	unsigned int **dc_step_chg_cond_soc;
 	unsigned int *dc_step_chg_cond_iin;
 	int dc_step_chg_iin_check_cnt;
 
-	unsigned int *dc_step_chg_val_iout;
-	unsigned int *dc_step_chg_val_vfloat;
+	unsigned int **dc_step_chg_val_iout;
+	unsigned int **dc_step_chg_val_vfloat;
 #endif
 #endif
 
@@ -1442,17 +1464,12 @@ static inline struct power_supply *get_power_supply_by_name(char *name)
 #define is_slate_mode(battery) ((battery->current_event & SEC_BAT_CURRENT_EVENT_SLATE) \
 		== SEC_BAT_CURRENT_EVENT_SLATE)
 
-#if defined(CONFIG_PDIC_PD30)
 #define is_pd_wire_type(cable_type) ( \
 	cable_type == SEC_BATTERY_CABLE_PDIC || \
 	cable_type == SEC_BATTERY_CABLE_PDIC_APDO)
 
 #define is_pd_apdo_wire_type(cable_type) ( \
 	cable_type == SEC_BATTERY_CABLE_PDIC_APDO)
-#else
-#define is_pd_wire_type(cable_type) ( \
-	cable_type == SEC_BATTERY_CABLE_PDIC)
-#endif
 #define is_pd_fpdo_wire_type(cable_type) ( \
 	cable_type == SEC_BATTERY_CABLE_PDIC)
 #endif /* __SEC_CHARGING_COMMON_H */

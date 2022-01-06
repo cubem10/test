@@ -321,7 +321,7 @@ early_param("sec_debug.fmm_lock_offset", sec_debug_fmm_lock_offset);
 static ssize_t store_FMM_lock(struct device *dev,
                 struct device_attribute *attr, const char *buf, size_t count)
 {
-       	char lock;
+	char lock;
 
 	sscanf(buf, "%c", &lock);
 	pr_info("%s: store %c in FMM_lock\n", __func__, lock);
@@ -516,6 +516,12 @@ static void sec_debug_dump_cpu_stat(void)
 		if (per_softirq_sums[i])
 			pr_info("softirq-%d : %8u %s\n", i, per_softirq_sums[i], softirq_to_name[i]);
 	pr_info("-------------------------------------------------------------------------------------------------------------\n");
+}
+
+void sec_debug_clear_magic_rambase(void)
+{
+	/* Clear magic code in normal reboot */
+	sec_debug_set_upload_magic(UPLOAD_MAGIC_INIT, NULL);
 }
 
 void sec_debug_reboot_handler(void *p)
@@ -753,9 +759,9 @@ void sec_debug_set_sysrq_crash(struct task_struct *task)
 #ifdef CONFIG_SEC_DEBUG_SYSRQ_KMSG
 		if (task) {
 			if (strcmp(task->comm, "init") == 0)
-				sdn->sysrq_ptr = sec_debug_get_curr_init_ptr();
+				sdn->kernd.sysrq_ptr = sec_debug_get_curr_init_ptr();
 			else
-				sdn->sysrq_ptr = dbg_snapshot_get_curr_ptr_for_sysrq();
+				sdn->kernd.sysrq_ptr = dbg_snapshot_get_curr_ptr_for_sysrq();
 #endif
 		}
 	}
@@ -879,6 +885,7 @@ static void sec_debug_set_essinfo(void)
 	init_ess_info(index++, "kevnt-idle");
 	init_ess_info(index++, "kevnt-thrm");
 	init_ess_info(index++, "kevnt-acpm");
+	init_ess_info(index++, "kevnt-mfrq");
 
 	for (; index < SD_NR_ESSINFO_ITEMS;)
 		init_ess_info(index++, "empty");
@@ -1004,7 +1011,15 @@ static void sec_debug_set_kconstants(void)
 
 static void __init sec_debug_init_sdn(struct sec_debug_next *d)
 {
-	memset(&d->kernd, 0x0, sizeof(d->kernd));
+#define clear_sdn_field(__p, __m)	memset(&(__p)->__m, 0x0, sizeof((__p)->__m));
+
+	clear_sdn_field(d, memtab);
+	clear_sdn_field(d, ksyms);
+	clear_sdn_field(d, kcnst);
+	clear_sdn_field(d, task);
+	clear_sdn_field(d, ss_info);
+	clear_sdn_field(d, rlock);
+	clear_sdn_field(d, kernd);
 }
 
 static int __init sec_debug_next_init(void)
@@ -1021,6 +1036,9 @@ static int __init sec_debug_next_init(void)
 
 	sdn->version[1] = SEC_DEBUG_KERNEL_UPPER_VERSION << 16;
 	sdn->version[1] += SEC_DEBUG_KERNEL_LOWER_VERSION;
+
+	/* set member table */
+	secdbg_base_set_memtab_info(&sdn->memtab);
 
 	/* set kernel symbols */
 	sec_debug_set_kallsyms_info(&(sdn->ksyms), SEC_DEBUG_MAGIC1);

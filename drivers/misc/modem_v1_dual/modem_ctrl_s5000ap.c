@@ -261,6 +261,9 @@ static int init_mailbox_regs(struct modem_ctl *mc)
 				sbi_sys_rev_mask, sbi_sys_rev_pos);
 	mif_info("hw_rev:%d\n", hw_rev);
 
+	mif_dt_read_u32(np, "sbi_nr_crash_type_mask", mc->sbi_nr_crash_type_mask);
+	mif_dt_read_u32(np, "sbi_nr_crash_type_pos", mc->sbi_nr_crash_type_pos);
+
 #ifdef CONFIG_EXYNOS_DECON_LCD
 	{//////* Detect and deliver device type to CP */
 	unsigned int sbi_device_type_mask, sbi_device_type_pos;
@@ -307,6 +310,7 @@ static int init_mailbox_regs(struct modem_ctl *mc)
 
 
 static struct modem_ctl *g_mc;
+extern int receive_first_ipc;
 
 static int s5000ap_on(struct modem_ctl *mc)
 {
@@ -320,6 +324,8 @@ static int s5000ap_on(struct modem_ctl *mc)
 
 	mif_info("+++\n");
 	mif_info("cp_active:%d cp_status:%d\n", cp_active, cp_status);
+
+	receive_first_ipc = 0;
 
 #ifndef CONFIG_CP_SECURE_BOOT
 	exynos_cp_init();
@@ -407,8 +413,6 @@ exit:
 	mif_info("---\n");
 	return 0;
 }
-
-extern receive_first_ipc;
 
 static int s5000ap_reset(struct modem_ctl *mc)
 {

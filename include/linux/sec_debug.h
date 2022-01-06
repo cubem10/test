@@ -32,6 +32,7 @@
 #define SEC_DEBUG_PANIC_INFORM		(EXYNOS_PMU_INFORM3)
 
 #ifdef CONFIG_SEC_DEBUG
+extern void sec_debug_clear_magic_rambase(void);
 extern int id_get_asb_ver(void);
 extern int id_get_product_line(void);
 extern void sec_debug_reboot_handler(void *p);
@@ -98,6 +99,7 @@ struct sec_debug_ksyms {
 	uint64_t relative_base;
 	uint64_t offsets_pa;
 	uint64_t kimage_voffset;
+	uint64_t reserved[4];
 };
 
 /* sec debug next */
@@ -136,6 +138,7 @@ struct sec_debug_kcnst {
 
 	uint64_t pa_text;
 	uint64_t pa_start_rodata;
+	uint64_t reserved[4];
 };
 
 struct member_type {
@@ -270,6 +273,7 @@ struct sec_debug_kernel_data {
 	uint64_t dev_shutdown_end;
 	uint64_t dev_shutdown_duration;
 	uint64_t dev_shutdown_func;
+	uint64_t sysrq_ptr;
 	struct watchdogd_info wddinfo;
 	struct bad_stack_info bsi;
 	struct suspend_dev_info sdi;
@@ -310,6 +314,12 @@ struct sec_debug_map {
 		(PTR)->offset = offsetof(TYPE, MEMBER); \
 	}
 
+struct sec_debug_memtab {
+	uint64_t table_start_pa;
+	uint64_t table_end_pa;
+	uint64_t reserved[4];
+};
+
 #define THREAD_START_SP			(THREAD_SIZE - 16)
 #define IRQ_STACK_START_SP		THREAD_START_SP
 
@@ -324,6 +334,7 @@ enum {
 	DSS_KEVENT_IDLE,
 	DSS_KEVENT_THRM,
 	DSS_KEVENT_ACPM,
+	DSS_KEVENT_MFRQ,
 };
 
 extern unsigned int get_smpl_warn_number(void);
@@ -616,9 +627,14 @@ extern void register_set_auto_comm_lastfreq(void (*func)(int type,
 #ifdef CONFIG_SEC_DEBUG_DTASK
 extern void sec_debug_wtsk_print_info(struct task_struct *task, bool raw);
 extern void sec_debug_wtsk_set_data(int type, void *data);
+static inline void sec_debug_wtsk_clear_data(void)
+{
+	sec_debug_wtsk_set_data(DTYPE_NONE, NULL);
+}
 #else
 #define sec_debug_wtsk_print_info(a, b)		do { } while (0)
 #define sec_debug_wtsk_set_data(a, b)		do { } while (0)
+#define sec_debug_wtsk_clear_data()		do { } while (0)
 #endif
 
 #ifdef CONFIG_SEC_DEBUG_INIT_LOG
@@ -636,13 +652,13 @@ struct sec_debug_next {
 	unsigned int version[2];
 
 	struct sec_debug_map map;
+	struct sec_debug_memtab memtab;
 	struct sec_debug_ksyms ksyms;
 	struct sec_debug_kcnst kcnst;
 	struct sec_debug_task task;
 	struct sec_debug_ess_info ss_info;
 	struct sec_debug_spinlock_info rlock;
 	struct sec_debug_kernel_data kernd;
-	size_t sysrq_ptr;
 
 	struct sec_debug_auto_comment auto_comment;
 	struct sec_debug_shared_buffer extra_info;
@@ -688,6 +704,28 @@ struct tsp_dump_callbacks {
 extern size_t sec_debug_get_curr_init_ptr(void);
 extern size_t dbg_snapshot_get_curr_ptr_for_sysrq(void);
 #endif
+
+/* sec_debug_memtab.c */
+extern void secdbg_base_set_memtab_info(struct sec_debug_memtab *ksyms);
+
+#ifdef CONFIG_SEC_DEBUG
+#define SDBG_KNAME_LEN	64
+struct secdbg_member_type {
+	char member[SDBG_KNAME_LEN];
+	uint16_t size;
+	uint16_t offset;
+	uint16_t unused[2];
+};
+#define SECDBG_DEFINE_MEMBER_TYPE(key, st, mem)					\
+	const struct secdbg_member_type sdbg_##key				\
+		__attribute__((__section__(".secdbg_mbtab." #key))) = {		\
+		.member = #key,							\
+		.size = FIELD_SIZEOF(struct st, mem),				\
+		.offset = offsetof(struct st, mem),				\
+	}
+#else
+#define SECDBG_DEFINE_MEMBER_TYPE(a, b, c)
+#endif /* CONFIG_SEC_DEBUG */
 
 #endif /* SEC_DEBUG_H */
 

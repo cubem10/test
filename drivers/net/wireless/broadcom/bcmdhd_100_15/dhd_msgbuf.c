@@ -3,7 +3,7 @@
  * Provides type definitions and function prototypes used to link the
  * DHD OS, bus, and protocol modules.
  *
- * Copyright (C) 1999-2019, Broadcom.
+ * Copyright (C) 1999-2020, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -26,7 +26,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_msgbuf.c 834104 2019-08-12 13:17:33Z $
+ * $Id: dhd_msgbuf.c 851108 2019-11-18 07:01:36Z $
  */
 
 #include <typedefs.h>
@@ -10599,8 +10599,9 @@ dhd_prot_debug_info_print(dhd_pub_t *dhd)
 	DHD_ERROR(("%s: cur_ioctlresp_bufs_posted %d cur_event_bufs_posted %d\n",
 		__FUNCTION__, prot->cur_ioctlresp_bufs_posted, prot->cur_event_bufs_posted));
 #ifdef DHD_LIMIT_MULTI_CLIENT_FLOWRINGS
-	DHD_ERROR(("%s: multi_client_flow_rings:%d max_multi_client_flow_rings:%d\n",
-		__FUNCTION__, dhd->multi_client_flow_rings, dhd->max_multi_client_flow_rings));
+	DHD_ERROR(("%s: multi_client_flow_rings:%u max_multi_client_flow_rings:%d\n",
+		__FUNCTION__, OSL_ATOMIC_READ(dhd->osh, &dhd->multi_client_flow_rings),
+		dhd->max_multi_client_flow_rings));
 #endif /* DHD_LIMIT_MULTI_CLIENT_FLOWRINGS */
 
 	DHD_ERROR(("pktid_txq_start_cnt: %d\n", prot->pktid_txq_start_cnt));

@@ -24,6 +24,12 @@
 #if defined(CONFIG_TYPEC)
 #include <linux/usb/typec.h>
 #endif
+#if defined(CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME)
+#include <linux/ems_service.h>
+#include <linux/pm_qos.h>
+#endif
+
+#define MAX77705_SYS_FW_UPDATE
 
 struct max77705_opcode {
 	unsigned char opcode;
@@ -140,7 +146,7 @@ struct max77705_usbc_platform_data {
 	usbc_cmd_data last_opcode;
 	unsigned long opcode_stamp;
 	struct mutex op_lock;
-
+	
 	/* F/W opcode command data */
 	usbc_cmd_queue_t usbc_cmd_queue;
 
@@ -151,6 +157,7 @@ struct max77705_usbc_platform_data {
 	uint32_t Device_Version;
 	uint32_t SVID_0;
 	uint32_t SVID_1;
+	uint32_t SVID_DP;
 	struct delayed_work acc_detach_work;
 	uint32_t dp_is_connect;
 	uint32_t dp_hs_connect;
@@ -166,6 +173,7 @@ struct max77705_usbc_platform_data {
 	int send_enter_mode_req;
 	u8 sbu[2];
 	struct completion ccic_sysfs_completion;
+	struct completion psrdy_wait;
 //	u8 selftest;
 //	struct completion is_selftest_done;
 
@@ -229,7 +237,7 @@ struct max77705_usbc_platform_data {
 	int is_in_first_sec_uvdm_req;
 	int is_in_sec_uvdm_out;
 	bool pn_flag;
-	u8 uvdm_error;
+	int uvdm_error;
 
 #if defined(CONFIG_SEC_FACTORY)
 	struct AP_REQ_GET_STATUS_Type factory_mode;
@@ -245,6 +253,16 @@ struct max77705_usbc_platform_data {
 	
 	bool recover_opcode_list[OPCODE_NONE];
 	int need_recover;
+	bool srcccap_request_retry;
+
+#if defined(CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME)
+	bool set_booster;
+	struct pm_qos_request kfc_qos;
+	struct pm_qos_request cpu1_qos;
+	struct pm_qos_request cpu2_qos;
+	struct pm_qos_request mif_qos;
+	struct delayed_work acc_booster_off_work;
+#endif
 };
 
 /* Function Status from s2mm005 definition */
@@ -267,6 +285,9 @@ typedef enum {
 #define ROLE_ACCEPT			0x1
 #define ROLE_REJECT			0x2
 #define ROLE_BUSY			0x3
+#if defined(CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME)
+#define CLK_BOOSTER_OFF_WAIT_MS (5000)
+#endif
 
 int max77705_pd_init(struct max77705_usbc_platform_data *usbc_data);
 int max77705_cc_init(struct max77705_usbc_platform_data *usbc_data);
@@ -293,14 +314,17 @@ void max77705_notify_dr_status(struct max77705_usbc_platform_data *usbpd_data,
 		uint8_t attach);
 void max77705_pdo_list(struct max77705_usbc_platform_data *usbc_data,
 		unsigned char *data);
+void max77705_response_pdo_request(struct max77705_usbc_platform_data *usbc_data,
+		unsigned char *data);
 #if defined(CONFIG_PDIC_PD30)
-int max77705_response_apdo_request(struct max77705_usbc_platform_data *usbc_data,
+void max77705_response_apdo_request(struct max77705_usbc_platform_data *usbc_data,
 		unsigned char *data);
 void max77705_response_set_pps(struct max77705_usbc_platform_data *usbc_data,
 		unsigned char *data);
 #endif
 void max77705_current_pdo(struct max77705_usbc_platform_data *usbc_data,
 		unsigned char *data);
+void max77705_check_pdo(struct max77705_usbc_platform_data *usbc_data);
 void max77705_detach_pd(struct max77705_usbc_platform_data *usbc_data);
 void max77705_notify_rp_current_level(struct max77705_usbc_platform_data *usbc_data);
 extern void max77705_manual_jig_on(struct max77705_usbc_platform_data *usbpd_data, int mode);
@@ -311,6 +335,10 @@ extern void max77705_set_host_turn_on_event(int mode);
 extern void pdic_manual_ccopen_request(int is_on);
 #if defined(CONFIG_TYPEC)
 int max77705_get_pd_support(struct max77705_usbc_platform_data *usbc_data);
+#endif
+#if defined(CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME)
+void max77705_clk_booster_set(void *data, int on);
+void max77705_clk_booster_off(struct work_struct *wk);
 #endif
 
 extern const uint8_t BOOT_FLASH_FW_PASS2[];

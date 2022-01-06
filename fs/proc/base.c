@@ -3221,6 +3221,35 @@ static int proc_pid_patch_state(struct seq_file *m, struct pid_namespace *ns,
 }
 #endif /* CONFIG_LIVEPATCH */
 
+#ifdef CONFIG_PROC_TRIGGER_SQLITE_BUG
+static ssize_t trigger_sqlite_bug_write(struct file *file,
+		const char __user *buf, size_t count, loff_t *offset)
+{
+	char buffer[PROC_NUMBUF] = {0, };
+	int ret;
+	int fd;
+	struct file *filp;
+
+	if (count > sizeof(buffer) - 1)
+		return -EINVAL;
+	if (copy_from_user(buffer, buf, count))
+		return -EFAULT;
+	ret = kstrtoint(strstrip(buffer), 10, &fd);
+	if (ret < 0)
+		return ret;
+
+	filp = fget(fd);
+
+	pr_err("%s: fd=%d filp=%p %s", __func__, fd, filp,
+			filp ? filp->f_path.dentry->d_name.name : NULL);
+	BUG();
+}
+
+const struct file_operations proc_trigger_sqlite_bug_operations = {
+	.write	= trigger_sqlite_bug_write,
+};
+#endif /* CONFIG_PROC_TRIGGER_SQLITE_BUG */
+
 /*
  * Thread groups
  */
@@ -3258,7 +3287,6 @@ static const struct pid_entry tgid_base_stuff[] = {
 	REG("maps",       S_IRUGO, proc_pid_maps_operations),
 #ifdef CONFIG_PAGE_BOOST
 	REG("filemap_list",       S_IRUGO, proc_pid_filemap_list_operations),
-	REG("filemap_info",       S_IRUGO|S_IWUGO, proc_pid_filemap_info_operations),
 	ONE("ioinfo",  S_IRUGO, proc_pid_ioinfo),
 #ifdef CONFIG_PAGE_BOOST_RECORDING
 	REG("io_record_control",      S_IRUGO|S_IWUGO, proc_pid_io_record_operations),
@@ -3340,6 +3368,9 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_FIVE
 	DIR("integrity", S_IRUGO|S_IXUGO, proc_integrity_inode_operations,
 			proc_integrity_operations),
+#endif
+#ifdef CONFIG_PROC_TRIGGER_SQLITE_BUG
+	REG("trigger_sqlite_bug", S_IWUSR, proc_trigger_sqlite_bug_operations),
 #endif
 };
 

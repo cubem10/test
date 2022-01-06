@@ -58,6 +58,8 @@
 #define FRAME_RATE_RESOLUTION	1000
 
 #define DEFAULT_TAG		(0xE05)
+#define IGNORE_TAG		(0xD5C) /* ex) encoder DRC */
+#define HEADER_TAG		(0xC5D)
 
 #define MFC_NO_INSTANCE_SET	-1
 
@@ -70,6 +72,12 @@
 #define STUFF_BYTE		4
 
 #define MFC_BASE_MASK		((1 << 17) - 1)
+
+/* Error & Warning */
+#define mfc_get_err(x)		(((x) >> MFC_REG_ERR_STATUS_SHIFT)	\
+						& MFC_REG_ERR_STATUS_MASK)
+#define mfc_get_warn(x)		(((x) >> MFC_REG_WARN_STATUS_SHIFT)	\
+						& MFC_REG_WARN_STATUS_MASK)
 
 /* MFC conceal color is black */
 #define MFC_CONCEAL_COLOR	0x8020000
@@ -150,6 +158,9 @@
 #define CODEC_HIGH_PERF(ctx)	(IS_H264_DEC(ctx) || IS_H264_MVC_DEC(ctx) || IS_HEVC_DEC(ctx))
 #define ON_RES_CHANGE(ctx)	(((ctx)->state >= MFCINST_RES_CHANGE_INIT) &&	\
 				 ((ctx)->state <= MFCINST_RES_CHANGE_END))
+#define IS_NO_ERROR(err)	((err) == 0 ||		\
+				(mfc_get_warn(err)	\
+				 == MFC_REG_ERR_SYNC_POINT_NOT_RECEIVED))
 
 #define IS_BUFFER_BATCH_MODE(ctx)	((ctx)->batch_mode == 1)
 

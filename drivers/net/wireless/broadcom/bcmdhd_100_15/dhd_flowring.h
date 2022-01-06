@@ -6,7 +6,7 @@
  * Provides type definitions and function prototypes used to create, delete and manage flow rings at
  * high level.
  *
- * Copyright (C) 1999-2019, Broadcom.
+ * Copyright (C) 1999-2020, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -269,6 +269,8 @@ extern int dhd_flowid_find_by_ifidx(dhd_pub_t *dhdp, uint8 ifidex, uint16 flowid
 extern void dhd_flowid_free(dhd_pub_t *dhdp, uint8 ifindex, uint16 flowid);
 
 extern void dhd_flow_rings_delete(dhd_pub_t *dhdp, uint8 ifindex);
+extern void dhd_update_multicilent_flow_rings(dhd_pub_t *dhdp, uint8 ifindex,
+	bool increment);
 extern void dhd_flow_rings_flush(dhd_pub_t *dhdp, uint8 ifindex);
 
 extern void dhd_flow_rings_delete_for_peer(dhd_pub_t *dhdp, uint8 ifindex,

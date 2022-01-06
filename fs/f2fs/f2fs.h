@@ -43,7 +43,9 @@ extern void (*ufs_debug_func)(void *);
 extern struct super_block *keypress_callback_sb;
 extern int (*keypress_callback_fn)(struct super_block *sb);
 
-#define f2fs_bug_on(sbi, condition)						\
+#define f2fs_bug_on(sbi, condition)	  __f2fs_bug_on(sbi, condition, true)
+#define f2fs_bug_on_endio(sbi, condition) __f2fs_bug_on(sbi, condition, false)	
+#define __f2fs_bug_on(sbi, condition, set_extra_blk)				\
 	do {									\
 		if (unlikely(condition)) {					\
 			if (ufs_debug_func)					\
@@ -53,7 +55,8 @@ extern int (*keypress_callback_fn)(struct super_block *sb);
 				sbi->sec_stat.fs_por_error++;			\
 				WARN_ON(1);					\
 			} else if (unlikely(!ignore_fs_panic)) {		\
-				f2fs_set_sb_extra_flag(sbi,			\
+				if (set_extra_blk)				\
+					f2fs_set_sb_extra_flag(sbi,		\
 						F2FS_SEC_EXTRA_FSCK_MAGIC);	\
 				sbi->sec_stat.fs_error++;			\
 				BUG_ON_CHKFS(1);				\
@@ -142,7 +145,6 @@ struct f2fs_mount_info {
 	unsigned int opt;
 	int write_io_size_bits;		/* Write IO size bits */
 	block_t root_reserved_blocks;	/* root reserved blocks */
-	block_t core_reserved_blocks;	/* core reserved blocks */
 	kuid_t s_resuid;		/* reserved blocks for uid */
 	kgid_t s_resgid;		/* reserved blocks for gid */
 	kgid_t flush_group;		/* should issue flush for gid */
@@ -215,7 +217,9 @@ enum {
 #define DEF_DISCARD_URGENT_UTIL		80	/* do more discard over 80% */
 #define DEF_CP_INTERVAL			60	/* 60 secs */
 #define DEF_IDLE_INTERVAL		5	/* 5 secs */
-#define DEF_DISABLE_INTERVAL		5	/* 5 secs */
+#define DEF_DISCARD_IDLE_INTERVAL	0	/* 0 secs */
+// 5s -> 15s: P191218-00524
+#define DEF_DISABLE_INTERVAL		15	/* 15 secs */
 #define DEF_UMOUNT_DISCARD_TIMEOUT	5	/* 5 secs */
 
 struct cp_control {
@@ -411,8 +415,6 @@ static inline bool __has_cursum_space(struct f2fs_journal *journal,
 #define F2FS_IOC_SETFLAGS		FS_IOC_SETFLAGS
 #define F2FS_IOC_GETVERSION		FS_IOC_GETVERSION
 
-#define F2FS_CORE_FILE_FL		0x40000000
-
 #define F2FS_IOCTL_MAGIC		0xf5
 #define F2FS_IOC_START_ATOMIC_WRITE	_IO(F2FS_IOCTL_MAGIC, 1)
 #define F2FS_IOC_COMMIT_ATOMIC_WRITE	_IO(F2FS_IOCTL_MAGIC, 2)
@@ -433,6 +435,7 @@ static inline bool __has_cursum_space(struct f2fs_journal *journal,
 #define F2FS_IOC_SET_PIN_FILE		_IOW(F2FS_IOCTL_MAGIC, 13, __u32)
 #define F2FS_IOC_GET_PIN_FILE		_IOR(F2FS_IOCTL_MAGIC, 14, __u32)
 #define F2FS_IOC_PRECACHE_EXTENTS	_IO(F2FS_IOCTL_MAGIC, 15)
+#define F2FS_IOC_GET_VALID_NODE_COUNT	_IOR(F2FS_IOCTL_MAGIC, 32, __u32)
 
 #define F2FS_IOC_SET_ENCRYPTION_POLICY	FS_IOC_SET_ENCRYPTION_POLICY
 #define F2FS_IOC_GET_ENCRYPTION_POLICY	FS_IOC_GET_ENCRYPTION_POLICY
@@ -1982,12 +1985,8 @@ static inline int inc_valid_block_count(struct f2fs_sb_info *sbi,
 	avail_user_block_count = sbi->user_block_count -
 					sbi->current_reserved_blocks;
 
-	if (!__allow_reserved_blocks(sbi, inode, true)) {
+	if (!__allow_reserved_blocks(sbi, inode, true))
 		avail_user_block_count -= F2FS_OPTION(sbi).root_reserved_blocks;
-
-		if (!(F2FS_I(inode)->i_flags & F2FS_CORE_FILE_FL))
-			avail_user_block_count -= F2FS_OPTION(sbi).core_reserved_blocks;
-	}
 
 	if (unlikely(is_sbi_flag_set(sbi, SBI_CP_DISABLED)))
 		avail_user_block_count -= sbi->unusable_block_count;
@@ -2203,11 +2202,8 @@ static inline int inc_valid_node_count(struct f2fs_sb_info *sbi,
 	valid_block_count = sbi->total_valid_block_count +
 					sbi->current_reserved_blocks + 1;
 
-	if (!__allow_reserved_blocks(sbi, inode, false)) {
+	if (!__allow_reserved_blocks(sbi, inode, false))
 		valid_block_count += F2FS_OPTION(sbi).root_reserved_blocks;
-		if (!(F2FS_I(inode)->i_flags & F2FS_CORE_FILE_FL))
-			valid_block_count += F2FS_OPTION(sbi).core_reserved_blocks;
-	}
 
 	if (unlikely(is_sbi_flag_set(sbi, SBI_CP_DISABLED)))
 		valid_block_count += sbi->unusable_block_count;
@@ -2577,11 +2573,12 @@ static inline void f2fs_cond_set_fua(struct f2fs_io_info *fio)
 #define F2FS_EXTENTS_FL			0x00080000 /* Inode uses extents */
 #define F2FS_EA_INODE_FL	        0x00200000 /* Inode used for large EA */
 #define F2FS_EOFBLOCKS_FL		0x00400000 /* Blocks allocated beyond EOF */
+#define F2FS_NOCOW_FL			0x00800000 /* Do not cow file */
 #define F2FS_INLINE_DATA_FL		0x10000000 /* Inode has inline data. */
 #define F2FS_PROJINHERIT_FL		0x20000000 /* Create with parents projid */
 #define F2FS_RESERVED_FL		0x80000000 /* reserved for ext4 lib */
 
-#define F2FS_FL_USER_VISIBLE		0x304BDFFF /* User visible flags */
+#define F2FS_FL_USER_VISIBLE		0x30CBDFFF /* User visible flags */
 #define F2FS_FL_USER_MODIFIABLE		0x204BC0FF /* User modifiable flags */
 
 /* Flags we can manipulate with through F2FS_IOC_FSSETXATTR */

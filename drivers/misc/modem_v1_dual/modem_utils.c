@@ -78,6 +78,8 @@ char *cp_crash_info = "none";
 module_param(cp_crash_info, charp, S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(cp_crash_info, "save crash info");
 
+struct crash_reason *nr_crash_reason;
+
 #define DEBUG_FLAG_DEFAULT    (1 << DEBUG_FLAG_FMT | 1 << DEBUG_FLAG_MISC)
 #ifdef DEBUG_MODEM_IF_PS_DATA
 static unsigned long dflags = (DEBUG_FLAG_DEFAULT | 1 << DEBUG_FLAG_RFS | 1 << DEBUG_FLAG_PS);
@@ -95,7 +97,7 @@ static const char *hex = "0123456789abcdef";
 
 static struct raw_notifier_head cp_crash_notifier;
 
-struct mif_buff_mng *g_mif_buff_mng;
+struct mif_buff_mng *g_mif_buff_mng = NULL;
 
 static inline void ts2utc(struct timespec *ts, struct utc_time *utc)
 {

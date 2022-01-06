@@ -20,6 +20,8 @@
 
 #define MAX77705_PD_NAME	"MAX77705_PD"
 
+bool max77705_sec_pps_control(int en);
+
 enum {
 	CC_SNK = 0,
 	CC_SRC,
@@ -116,6 +118,9 @@ struct max77705_pd_data {
 #if defined(CONFIG_PDIC_PD30)
 	bool bPPS_on;
 #endif
+
+	struct workqueue_struct *wqueue;
+	struct delayed_work retry_work;
 
 	int cc_status;
 

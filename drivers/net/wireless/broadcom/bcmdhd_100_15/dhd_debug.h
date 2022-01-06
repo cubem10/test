@@ -3,7 +3,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * Copyright (C) 1999-2019, Broadcom.
+ * Copyright (C) 1999-2020, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -23,7 +23,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_debug.h 843815 2019-10-01 12:48:01Z $
+ * $Id: dhd_debug.h 865142 2020-02-19 02:27:53Z $
  */
 
 #ifndef _dhd_debug_h_
@@ -442,6 +442,9 @@ typedef enum {
 	/* Dropped by driver for any other reason. */
 	RX_PKT_FATE_DRV_DROP_OTHER,
 
+	/* Indicate RX Host Wake up packet. */
+	RX_PKT_FATE_WAKE_PKT,
+
 	} wifi_rx_packet_fate;
 
 typedef enum {
@@ -856,4 +859,7 @@ typedef struct _pr_roam_tbl {
 	uint8 id;
 	print_roam_enhance_log_func pr_func;
 } pr_roam_tbl_t;
+
+extern uint32 dhd_dbg_get_fwverbose(dhd_pub_t *dhdp);
+extern void dhd_dbg_set_fwverbose(dhd_pub_t *dhdp, uint32 new_val);
 #endif /* _dhd_debug_h_ */

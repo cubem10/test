@@ -2375,7 +2375,7 @@ int decon_check_global_limitation(struct decon_device *decon,
 		 */
 		if (config[i].compression && (config[i].src.w > 2048)) {
 			for (j = 0; j < MAX_DECON_WIN; j++) {
-				if (i == j)
+				if (i == j || (config[i].idma_type >= ODMA_WB))
 					continue;
 				/* idma_type means DPP channel number */
 				if ((config[j].state == DECON_WIN_STATE_BUFFER) &&
@@ -2395,7 +2395,7 @@ int decon_check_global_limitation(struct decon_device *decon,
 		 *	one on the other should never have compression.
 		 */
 		} else if (config[i].dpp_parm.rot > DPP_ROT_180) {
-			bpp = dpu_get_bpp(config->format);
+			bpp = dpu_get_bpp(config[i].format);
 			/* 10-bit YUV */
 			if (bpp == 15 || bpp == 24) {
 				decon_err("Limited 10-bit ROT!\n");
@@ -2403,15 +2403,15 @@ int decon_check_global_limitation(struct decon_device *decon,
 				goto err;
 			}
 			/* 8-bit YUV */
-			if ((config->src.w > ROT_MAX_W) &&
-				(config->src.w * config->src.h > ROT_MAX_SZ)) {
+			if ((config[i].src.w > ROT_MAX_W) &&
+				(config[i].src.w * config[i].src.h > ROT_MAX_SZ)) {
 				decon_err("Exceeded supporting ROT size!\n");
 				ret = -EPERM;
 				goto err;
 			}
 
 			for (j = 0; j < MAX_DECON_WIN; j++) {
-				if (i == j)
+				if (i == j || (config[i].idma_type >= ODMA_WB))
 					continue;
 				if ((config[j].state == DECON_WIN_STATE_BUFFER) &&
 						(config[j].idma_type ==

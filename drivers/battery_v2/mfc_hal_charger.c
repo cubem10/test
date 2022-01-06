@@ -145,12 +145,12 @@ static int mfc_check_ic_info(struct mfc_charger_data *charger)
 
 	if (!wpc_det) {
 		mfc_uno_on(charger, 1);
-		mdelay(200);
+		msleep(200);
 	}
 
 	id = mfc_get_ic_id(charger);
-	if (id >= 0)
-		mfc_chip_id_now = id;
+	if (id == MFC_CHIP_ID_S2MIW04)
+		mfc_chip_id_now = MFC_CHIP_ID_S2MIW04;
 	else
 		mfc_chip_id_now = MFC_CHIP_ID_P9320; /* default is IDT */
 
@@ -250,8 +250,9 @@ static int mfc_hal_charger_probe(
 	mutex_init(&charger->io_lock);
 
 #if defined(CONFIG_WIRELESS_IC_PARAM)
-	pr_info("%s, wireless_chip_id_param : 0x%02X, wireless_fw_ver_param : 0x%04X\n",
-		__func__, wireless_chip_id_param, wireless_fw_ver_param);
+	pr_info("%s, wireless_chip_id_param : 0x%02X, wireless_fw_ver_param : 0x%04X"
+			"wireless_fw_mode_param : (0x%01X)\n", __func__,
+			wireless_chip_id_param, wireless_fw_ver_param, wireless_fw_mode_param);
 
 	if (wireless_chip_id_param == MFC_CHIP_ID_P9320 || wireless_chip_id_param == MFC_CHIP_ID_S2MIW04) {
 		mfc_chip_id_now = wireless_chip_id_param;

@@ -1676,8 +1676,10 @@ static int f2fs_ioc_getflags(struct file *filp, unsigned long arg)
 		flags |= F2FS_ENCRYPT_FL;
 	if (f2fs_has_inline_data(inode) || f2fs_has_inline_dentry(inode))
 		flags |= F2FS_INLINE_DATA_FL;
+	if (is_inode_flag_set(inode, FI_PIN_FILE))
+		flags |= F2FS_NOCOW_FL;
 
-	flags &= (F2FS_FL_USER_VISIBLE | F2FS_CORE_FILE_FL);
+	flags &= F2FS_FL_USER_VISIBLE;
 
 	return put_user(flags, (int __user *)arg);
 }
@@ -1699,8 +1701,8 @@ static int __f2fs_ioc_setflags(struct inode *inode, unsigned int flags)
 		if (!capable(CAP_LINUX_IMMUTABLE))
 			return -EPERM;
 
-	flags = flags & (F2FS_FL_USER_MODIFIABLE | F2FS_CORE_FILE_FL);
-	flags |= oldflags & ~(F2FS_FL_USER_MODIFIABLE | F2FS_CORE_FILE_FL);
+	flags = flags & F2FS_FL_USER_MODIFIABLE;
+	flags |= oldflags & ~F2FS_FL_USER_MODIFIABLE;
 	fi->i_flags = flags;
 
 	if (fi->i_flags & F2FS_PROJINHERIT_FL)
@@ -2167,9 +2169,9 @@ static int f2fs_ioc_gc_range(struct file *filp, unsigned long arg)
 		return -EROFS;
 
 	end = range.start + range.len;
-	if (range.start < MAIN_BLKADDR(sbi) || end >= MAX_BLKADDR(sbi)) {
+	if (end < range.start || range.start < MAIN_BLKADDR(sbi) ||
+					end >= MAX_BLKADDR(sbi))
 		return -EINVAL;
-	}
 
 	ret = mnt_want_write_file(filp);
 	if (ret)
@@ -2985,6 +2987,14 @@ static int f2fs_ioc_precache_extents(struct file *filp, unsigned long arg)
 	return f2fs_precache_extents(file_inode(filp));
 }
 
+static int f2fs_ioc_get_valid_node_count(struct file *filp, unsigned long arg)
+{
+	struct f2fs_sb_info *sbi = F2FS_I_SB(file_inode(filp));
+	u32 node_count = (u32)valid_node_count(sbi);
+
+	return put_user(node_count, (u32 __user *)arg);
+}
+
 long f2fs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	if (unlikely(f2fs_cp_error(F2FS_I_SB(file_inode(filp)))))
@@ -3041,6 +3051,8 @@ long f2fs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		return f2fs_ioc_set_pin_file(filp, arg);
 	case F2FS_IOC_PRECACHE_EXTENTS:
 		return f2fs_ioc_precache_extents(filp, arg);
+	case F2FS_IOC_GET_VALID_NODE_COUNT:
+		return f2fs_ioc_get_valid_node_count(filp, arg);
 #ifdef CONFIG_FSCRYPT_SDP
 	case FS_IOC_GET_SDP_INFO:
 	case FS_IOC_SET_SDP_POLICY:
@@ -3054,6 +3066,7 @@ long f2fs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 #ifdef CONFIG_DDAR
 	case F2FS_IOC_GET_DD_POLICY:
 	case F2FS_IOC_SET_DD_POLICY:
+	case FS_IOC_GET_DD_INODE_COUNT:
 		return fscrypt_dd_ioctl(cmd, &arg, file_inode(filp));
 #endif
 	default:
@@ -3163,6 +3176,7 @@ long f2fs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case F2FS_IOC_GET_PIN_FILE:
 	case F2FS_IOC_SET_PIN_FILE:
 	case F2FS_IOC_PRECACHE_EXTENTS:
+	case F2FS_IOC_GET_VALID_NODE_COUNT:
 #ifdef CONFIG_FSCRYPT_SDP
 	case FS_IOC_GET_SDP_INFO:
 	case FS_IOC_SET_SDP_POLICY:
@@ -3175,6 +3189,7 @@ long f2fs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 #ifdef CONFIG_DDAR
 	case F2FS_IOC_GET_DD_POLICY:
 	case F2FS_IOC_SET_DD_POLICY:
+	case FS_IOC_GET_DD_INODE_COUNT:
 #endif
 		break;
 	default:

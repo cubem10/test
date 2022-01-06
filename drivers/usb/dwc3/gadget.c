@@ -34,12 +34,17 @@
 #endif
 #include <linux/usb/samsung_usb.h>
 #include <linux/phy/phy.h>
+#include <linux/usb_notify.h>
+#include <linux/workqueue.h>
 
 #include "debug.h"
 #include "core.h"
 #include "otg.h"
 #include "gadget.h"
 #include "io.h"
+
+extern bool acc_dev_status;
+
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 static void dwc3_disconnect_gadget(struct dwc3 *dwc);
 static void dwc3_gadget_cable_connect(struct dwc3 *dwc, bool connect)
@@ -221,7 +226,7 @@ int dwc3_gadget_set_link_state(struct dwc3 *dwc, enum dwc3_link_state state)
 	return -ETIMEDOUT;
 }
 
-static void dwc3_gedget_link_state_print (struct dwc3 *dwc, char* fname)
+static void dwc3_gadget_link_state_print (struct dwc3 *dwc, char* fname)
 {
 	int i;
 	char buf[DWC3_LINK_STATE_LAST_INFO_MEM*5+1] = {0,};
@@ -1973,7 +1978,7 @@ static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on, int suspend)
 
 		dwc->pullups_connected = true;
 	} else {
-		dwc3_gedget_link_state_print(dwc, "STOP");
+		dwc3_gadget_link_state_print(dwc, "STOP");
 		dwc3_gadget_disable_irq(dwc);
 		reg = dwc3_readl(dwc->regs, DWC3_DCTL);
 		reg &= ~DWC3_DCTL_ULSTCHNGREQ_MASK;
@@ -2080,7 +2085,7 @@ static int dwc3_gadget_run_stop_vbus(struct dwc3 *dwc, int is_on, int suspend)
 
 		dwc->pullups_connected = true;
 	} else {
-		dwc3_gedget_link_state_print(dwc, "STOP_VBUS");
+		dwc3_gadget_link_state_print(dwc, "STOP_VBUS");
 		dwc3_gadget_disable_irq(dwc);
 		dwc3_event_buffers_cleanup(dwc);
 		__dwc3_gadget_ep_disable(dwc->eps[1]);
@@ -2159,7 +2164,7 @@ static int dwc3_gadget_vbus_session(struct usb_gadget *g, int is_active)
 
 	is_active = !!is_active;
 
-	dev_info(dwc->dev, "%s: is_active = %d, softconnect = %d, vbus_session = %d\n",
+	pr_info("usb: %s: is_active = %d, softconnect = %d, vbus_session = %d\n",
 			__func__, is_active, dwc->softconnect, dwc->vbus_session);
 
 	spin_lock_irqsave(&dwc->lock, flags);
@@ -2228,6 +2233,14 @@ static int dwc3_gadget_vbus_session(struct usb_gadget *g, int is_active)
 	if (ret)
 		dev_err(dwc->dev, "dwc3 gadget run/stop error:%d\n", ret);
 
+	if (dwc->rst_err_noti) {
+		dwc->event_state = RELEASE;
+		dwc->rst_err_noti = false;
+		schedule_delayed_work(&dwc->usb_event_work, msecs_to_jiffies(0));
+	}
+	dwc->rst_err_cnt = 0;
+	acc_dev_status = 0;
+
 	return 0;
 }
 
@@ -2244,7 +2257,7 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 
 	spin_lock_irqsave(&dwc->lock, flags);
 
-	dev_info(dwc->dev, "%s: pullup = %d, vbus = %d\n",
+	pr_info("usb: %s: pullup = %d, vbus = %d\n",
 			__func__, is_on, dwc->vbus_session);
 	if (is_on == dwc->softconnect) {
 		dev_info(dwc->dev, "pullup is already %s\n",
@@ -2285,7 +2298,7 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 	} else {
 		if (is_on)
 			store_usblog_notify(NOTIFY_USBSTATE,
-						(void *)"USB_STATE=PULLUP:DIS:FAIL", NULL);
+						(void *)"USB_STATE=PULLUP:EN:FAIL", NULL);
 		else
 			store_usblog_notify(NOTIFY_USBSTATE,
 						(void *)"USB_STATE=PULLUP:DIS:FAIL", NULL);
@@ -3164,9 +3177,22 @@ static void dwc3_gadget_disconnect_interrupt(struct dwc3 *dwc)
 	dwc->connected = false;
 }
 
+static void dwc3_gadget_usb_event_work(struct work_struct *work)
+{
+	struct dwc3 *dwc = container_of(work, struct dwc3, usb_event_work.work);
+
+	pr_info("%s, event_state: %d\n", __func__, dwc->event_state);
+
+	if (dwc->event_state)
+		send_usb_err_uevent(USB_ERR_ABNORMAL_RESET, NOTIFY);
+	else
+		send_usb_err_uevent(USB_ERR_ABNORMAL_RESET, RELEASE);
+}
+
 static void dwc3_gadget_reset_interrupt(struct dwc3 *dwc)
 {
 	u32			reg;
+	ktime_t current_time;
 
 	dwc->connected = true;
 
@@ -3220,6 +3246,33 @@ static void dwc3_gadget_reset_interrupt(struct dwc3 *dwc)
 	reg &= ~(DWC3_DCFG_DEVADDR_MASK);
 	dwc3_writel(dwc->regs, DWC3_DCFG, reg);
 
+	if (acc_dev_status && (dwc->rst_err_noti == false)) {
+		current_time = ktime_to_ms(ktime_get_boottime());
+
+		if ((dwc->rst_err_cnt == 0) && (dwc->gadget.state < USB_STATE_CONFIGURED)) {
+			if ((current_time - dwc->rst_time_before) < 1000) {
+				dwc->rst_err_cnt++;
+				dwc->rst_time_first = dwc->rst_time_before;
+			}
+		} else {
+			if ((current_time - dwc->rst_time_first) < 1000) {
+				dwc->rst_err_cnt++;
+			} else {
+				dwc->rst_err_cnt = 0;
+			}
+		}
+
+		if (dwc->rst_err_cnt > ERR_RESET_CNT) {
+			dwc->event_state = NOTIFY;
+			schedule_delayed_work(&dwc->usb_event_work, msecs_to_jiffies(0));
+			dwc->rst_err_noti = true;
+		}
+
+		pr_info("%s rst_err_cnt: %d, time_current: %lld, time_before: %lld\n",
+			__func__, dwc->rst_err_cnt, current_time, dwc->rst_time_before);
+
+		dwc->rst_time_before = current_time;
+	}
 	if (dwc->is_not_vbus_pad) {
 		phy_set(dwc->usb2_generic_phy, SET_DPPULLUP_ENABLE, NULL);
 		phy_set(dwc->usb3_generic_phy, SET_DPPULLUP_ENABLE, NULL);
@@ -3568,11 +3621,12 @@ static void dwc3_gadget_interrupt(struct dwc3 *dwc,
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 		dwc3_gadget_cable_connect(dwc, false);
 #endif
-		dev_info(dwc->dev, "usb: %s DISCONNECT\n", __func__);
+		pr_info("usb: %s DISCONNECT\n", __func__);
 		dwc3_gadget_disconnect_interrupt(dwc);
 		break;
 	case DWC3_DEVICE_EVENT_RESET:
-		dwc3_gedget_link_state_print(dwc, "RESET");
+		pr_info("usb: %s RESET\n", __func__);
+		dwc3_gadget_link_state_print(dwc, "RESET");
 		dwc3_gadget_reset_interrupt(dwc);
 #ifdef CONFIG_USB_NOTIFY_PROC_LOG
 		if (dwc->gadget.speed == USB_SPEED_FULL)
@@ -3839,6 +3893,7 @@ int dwc3_gadget_init(struct dwc3 *dwc)
 	}
 
 	dwc->irq_gadget = irq;
+	INIT_DELAYED_WORK(&dwc->usb_event_work, dwc3_gadget_usb_event_work);
 
 	dwc->ep0_trb = dma_alloc_coherent(dwc->sysdev,
 					  sizeof(*dwc->ep0_trb) * 2,

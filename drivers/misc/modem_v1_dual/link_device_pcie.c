@@ -50,6 +50,9 @@
 
 #define MIF_TX_QUOTA 64
 
+static inline void start_tx_timer(struct mem_link_device *mld,
+				  struct hrtimer *timer);
+
 #if !defined(CONFIG_CP_SECURE_BOOT)
 #define CRC32_XINIT 0xFFFFFFFFL		/* initial value */
 #define CRC32_XOROT 0xFFFFFFFFL		/* final xor value */
@@ -413,7 +416,7 @@ void handle_cp_not_work(unsigned long arg)
 {
 	struct mem_link_device *mld = (struct mem_link_device *)arg;
 
-	shmem_forced_cp_crash(mld, CRASH_REASON_MIF_MDM_CTRL,
+	shmem_forced_cp_crash(mld, CRASH_REASON_CP_NOT_WORK,
 				   "cp not working for a while");
 }
 #endif
@@ -541,7 +544,7 @@ static void cmd_phone_start_handler(struct mem_link_device *mld)
 					cmd2int(phone_start_count - 100));
 			} else {
 				shmem_forced_cp_crash(mld,
-					CRASH_REASON_CP_RSV_0,
+					CRASH_REASON_CP_ABNORMAL_START,
 					"Abnormal CP_START from CP");
 			}
 			return;
@@ -581,6 +584,7 @@ static void cmd_phone_start_handler(struct mem_link_device *mld)
 	modem_notify_event(MODEM_EVENT_ONLINE, mc);
 
 exit:
+	start_tx_timer(mld, &mld->sbd_print_timer);
 	spin_unlock_irqrestore(&mld->state_lock, flags);
 }
 
@@ -3329,6 +3333,7 @@ static ssize_t rb_info_store(struct device *dev,
 	return ret;
 }
 
+#if defined(CONFIG_CP_ZEROCOPY)
 static ssize_t zmc_count_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -3360,6 +3365,9 @@ static ssize_t zmc_count_store(struct device *dev,
 static ssize_t mif_buff_mng_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
+	if (!g_mif_buff_mng)
+		return 0;
+
 	return sprintf(buf, "used(%d)/free(%d)/total(%d)\n",
 			g_mif_buff_mng->used_cell_count, g_mif_buff_mng->free_cell_count,
 			g_mif_buff_mng->cell_count);
@@ -3390,6 +3398,7 @@ static ssize_t force_use_memcpy_store(struct device *dev,
 		modem->mld->force_use_memcpy = 1;
 	return count;
 }
+#endif
 
 #if defined(CONFIG_SEC_SIPC_DUAL_MODEM_IF)
 static ssize_t cp_uart_sel_show(struct device *dev,
@@ -3428,16 +3437,20 @@ static DEVICE_ATTR_RW(cp_uart_sel);
 
 static DEVICE_ATTR_RW(tx_period_ms);
 static DEVICE_ATTR_RW(rb_info);
+#if defined(CONFIG_CP_ZEROCOPY)
 static DEVICE_ATTR_RO(mif_buff_mng);
 static DEVICE_ATTR_RW(zmc_count);
 static DEVICE_ATTR_RW(force_use_memcpy);
+#endif
 
 static struct attribute *shmem_attrs[] = {
 	&dev_attr_tx_period_ms.attr,
 	&dev_attr_rb_info.attr,
+#if defined(CONFIG_CP_ZEROCOPY)
 	&dev_attr_mif_buff_mng.attr,
 	&dev_attr_zmc_count.attr,
 	&dev_attr_force_use_memcpy.attr,
+#endif
 #if defined(CONFIG_SEC_SIPC_DUAL_MODEM_IF)
 	&dev_attr_cp_uart_sel.attr,
 #endif
@@ -3571,6 +3584,90 @@ static const struct attribute_group napi_group = {		\
 	.name = "napi",
 };
 #endif
+
+#define BUFF_SIZE 256
+static u32 p_pktproc[3];
+static u32 c_pktproc[3];
+static u32 p_rwpointer[4];
+static u32 c_rwpointer[4];
+
+static enum hrtimer_restart pktproc_print(struct hrtimer *timer)
+{
+	struct mem_link_device *mld = container_of(timer,
+						   struct mem_link_device,
+						   sbd_print_timer);
+	struct pktproc_adaptor *ppa = &mld->pktproc;
+	struct pktproc_queue *q;
+	int i;
+
+	struct sbd_link_device *sl = &mld->sbd_link_dev;
+	u16 id;
+	struct sbd_ring_buffer *rb[ULDL];
+	struct io_device *iod, *static_iod;
+	char buf[BUFF_SIZE];
+	int len = 0;
+
+	if (!sbd_active(sl))
+		goto restart;
+
+	for (i = 0; i < ppa->num_queue; i++) {
+		q = ppa->q[i];
+
+		c_pktproc[0] = *q->fore_ptr;
+		c_pktproc[1] = *q->rear_ptr;
+		c_pktproc[2] = q->done_ptr;
+	}
+
+	id = sbd_ch2id(sl, QOS_HIPRIO);
+	rb[TX] = &sl->ipc_dev[id].rb[TX];
+	rb[RX] = &sl->ipc_dev[id].rb[RX];
+
+	c_rwpointer[0] = *(u32 *)rb[TX]->rp;
+	c_rwpointer[1] = *(u32 *)rb[TX]->wp;
+	c_rwpointer[2] = *(u32 *)rb[RX]->rp;
+	c_rwpointer[3] = *(u32 *)rb[RX]->wp;
+
+	if (memcmp(p_pktproc, c_pktproc, sizeof(u32)*3) ||
+	    memcmp(p_rwpointer, c_rwpointer, sizeof(u32)*4))
+	{
+		mif_err("Queue:%d fore:%d rear:%d done:%d\n",
+			i, c_pktproc[0], c_pktproc[1], c_pktproc[2]);
+		memcpy(p_pktproc, c_pktproc, sizeof(u32)*3);
+		
+		mif_err("TX %04d/%04d %04d/%04d RX %04d/%04d %04d/%04d\n",
+			c_rwpointer[0] & 0xFFFF, c_rwpointer[1] & 0xFFFF,
+			c_rwpointer[0] >> 16, c_rwpointer[1] >> 16,
+			c_rwpointer[2] & 0xFFFF, c_rwpointer[3] & 0xFFFF,
+			c_rwpointer[2] >> 16, c_rwpointer[3] >> 16);
+		memcpy(p_rwpointer, c_rwpointer, sizeof(u32)*4);
+
+		static_iod = get_static_rmnet_iod_with_channel(rb[TX]->iod->id);
+		if (unlikely(!static_iod)) goto restart;
+		
+		spin_lock(&static_iod->msd->active_list_lock);
+		list_for_each_entry(iod, &static_iod->msd->activated_ndev_list, node_ndev) {
+			len += snprintf(buf + len, BUFF_SIZE - len, "%s: %lu/%lu ", iod->name, 
+							iod->ndev->stats.tx_packets, iod->ndev->stats.rx_packets);
+		}
+		spin_unlock(&static_iod->msd->active_list_lock);
+		
+		mif_err("%s\n", buf);
+	}
+
+restart:
+	hrtimer_forward_now(timer, ms_to_ktime(1000));
+
+	return HRTIMER_RESTART;
+}
+
+static int dlevel = 0;
+static int __init console_setup(char *str)
+{
+	get_option(&str, &dlevel);
+	mif_info("debug_level = 0x%x\n", dlevel);
+	return 0;
+ }
+__setup("androidboot.debug_level=", console_setup);
 
 struct link_device *pcie_create_link_device(struct platform_device *pdev)
 {
@@ -3820,6 +3917,10 @@ struct link_device *pcie_create_link_device(struct platform_device *pdev)
 		hrtimer_init(&mld->sbd_tx_timer,
 				CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 		mld->sbd_tx_timer.function = sbd_tx_timer_func;
+		
+		hrtimer_init(&mld->sbd_print_timer,
+				CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+		mld->sbd_print_timer.function = pktproc_print;
 
 		err = create_sbd_link_device(ld,
 				&mld->sbd_link_dev, mld->base, mld->size);
@@ -3947,7 +4048,15 @@ struct link_device *pcie_create_link_device(struct platform_device *pdev)
 	mld->cp_not_work.expires = jiffies;
 	mld->cp_not_work.function = handle_cp_not_work;
 	mld->cp_not_work.data = (unsigned long)mld;
-	mld->not_work_time = 60; // init to 1 min
+
+	if (dlevel == 0x4f4c)
+		mld->not_work_time = 60 * 13;
+	else
+		mld->not_work_time = 60 * 10;
+	mif_info("set cp_not_work timer to %d sec\n", mld->not_work_time);
+
+	/* make link for access to NR crash reason */
+	nr_crash_reason = &mld->crash_reason;
 
 	mif_err("---\n");
 	return ld;

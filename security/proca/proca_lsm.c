@@ -80,6 +80,8 @@ static int read_xattr(struct dentry *dentry, const char *name,
 	ssize_t ret;
 	void *buffer = NULL;
 
+	dentry = d_real_comp(dentry);
+
 	*xattr_value = NULL;
 	ret = __vfs_getxattr(dentry, dentry->d_inode, name, NULL, 0);
 	if (ret <= 0)
@@ -102,34 +104,21 @@ static int read_xattr(struct dentry *dentry, const char *name,
 	return ret;
 }
 
-static bool is_cert_relevant_to_task(
-				const struct proca_certificate *parsed_cert,
-				struct task_struct *task)
+static struct proca_task_descr *prepare_unsigned_proca_task_descr(
+					struct task_struct *task,
+					struct file *file)
 {
-	const char system_server_app_name[] = "/system/framework/services.jar";
-	const char system_server[] = "system_server";
-	const size_t max_app_name = 1024;
-	char cmdline[max_app_name + 1];
-	int cmdline_size;
+	struct proca_identity ident;
+	struct proca_task_descr *task_descr = NULL;
 
-	cmdline_size = get_cmdline(task, cmdline, max_app_name);
-	cmdline[cmdline_size] = 0;
+	if (init_proca_identity(&ident, file, NULL, 0, NULL))
+		return task_descr;
 
-	// Special case for system_server
-	if (!strncmp(parsed_cert->app_name, system_server_app_name,
-			parsed_cert->app_name_size)) {
-		if (strncmp(cmdline, system_server, sizeof(system_server)))
-			return false;
-	} else if (parsed_cert->app_name[0] != '/') {
-		// Case for Android applications
-		PROCA_DEBUG_LOG("Task %d has cmdline : %s\n",
-			task->pid, cmdline);
-		if (strncmp(cmdline, parsed_cert->app_name,
-				parsed_cert->app_name_size))
-			return false;
-	}
+	task_descr = create_proca_task_descr(task, &ident);
+	if (!task_descr)
+		deinit_proca_identity(&ident);
 
-	return true;
+	return task_descr;
 }
 
 static struct proca_task_descr *prepare_proca_task_descr(
@@ -149,8 +138,12 @@ static struct proca_task_descr *prepare_proca_task_descr(
 	pa_xattr_size = read_xattr(file->f_path.dentry,
 				XATTR_NAME_PA, &pa_xattr_value);
 
-	if (!pa_xattr_value && !task_integrity_value_allow_sign(tint_value))
-		return NULL;
+	if (!pa_xattr_value) {
+		if (task_integrity_value_allow_sign(tint_value))
+			return prepare_unsigned_proca_task_descr(task, file);
+		else
+			return NULL;
+	}
 
 	if (xattr) {
 		five_sign_xattr_value = kmemdup(
@@ -163,26 +156,17 @@ static struct proca_task_descr *prepare_proca_task_descr(
 	}
 
 	if (!five_sign_xattr_value) {
-		PROCA_INFO_LOG("Failed to read five xattr\n");
+		PROCA_INFO_LOG(
+			"Failed to read five xattr, pid %d, integrity 0x%x\n",
+					task->pid, tint_value);
 		goto pa_xattr_cleanup;
-	}
-
-	if (!pa_xattr_value) {
-		// in this case task is allowed to sign
-		task_descr = create_unsigned_proca_task_descr(task);
-		if (task_descr) {
-			*out_five_xattr_value = five_sign_xattr_value;
-			return task_descr;
-		} else {
-			goto five_xattr_cleanup;
-		}
 	}
 
 	if (parse_proca_certificate(pa_xattr_value, pa_xattr_size,
 				    &parsed_cert))
 		goto five_xattr_cleanup;
 
-	if (!is_cert_relevant_to_task(&parsed_cert, task))
+	if (!is_certificate_relevant_to_task(&parsed_cert, task))
 		goto proca_cert_cleanup;
 
 	PROCA_DEBUG_LOG("%s xattr was found for task %d\n", XATTR_NAME_PA,
@@ -241,6 +225,15 @@ static bool is_bprm(struct task_struct *task, struct file *old_file,
 	return res;
 }
 
+static struct file *get_real_file(struct file *file)
+{
+	if (locks_inode(file)->i_sb->s_magic == OVERLAYFS_SUPER_MAGIC &&
+					file->private_data)
+		file = (struct file *)file->private_data;
+
+	return file;
+}
+
 static void proca_hook_file_processed(struct task_struct *task,
 				enum task_integrity_value tint_value,
 				struct file *file, void *xattr,
@@ -250,19 +243,22 @@ static void proca_hook_file_processed(struct task_struct *task,
 	bool need_set_five = false;
 	struct proca_task_descr *target_task_descr = NULL;
 
+	file = get_real_file(file);
+	if (!file)
+		return;
+
 	if (task->flags & PF_KTHREAD)
 		return;
 
-	target_task_descr = proca_table_get_by_pid(&g_proca_table, task->pid);
+	target_task_descr = proca_table_get_by_task(&g_proca_table, task);
 	if (target_task_descr &&
 		is_bprm(task, target_task_descr->proca_identity.file, file)) {
 		PROCA_DEBUG_LOG(
 			"Task descr for task %d already exists before exec\n",
 			task->pid);
 
-		target_task_descr = proca_table_remove_by_pid(
-					&g_proca_table,
-					task->pid);
+		proca_table_remove_task_descr(&g_proca_table,
+					      target_task_descr);
 		destroy_proca_task_descr(target_task_descr);
 		target_task_descr = NULL;
 	}
@@ -280,9 +276,12 @@ static void proca_hook_file_processed(struct task_struct *task,
 	need_set_five |= task_integrity_value_allow_sign(tint_value);
 
 	if ((five_xattr_value || need_set_five) && !file->f_signature) {
-		if (!five_xattr_value)
+		if (!five_xattr_value && xattr)
+			five_xattr_value = kmemdup(
+						xattr, xattr_size, GFP_KERNEL);
+		else if (!five_xattr_value && !xattr)
 			read_xattr(file->f_path.dentry, XATTR_NAME_FIVE,
-				   &five_xattr_value);
+					&five_xattr_value);
 		file->f_signature = five_xattr_value;
 	} else if (five_xattr_value && file->f_signature) {
 		kfree(five_xattr_value);
@@ -297,6 +296,10 @@ static void proca_hook_file_signed(struct task_struct *task,
 	char *xattr_value = NULL;
 
 	if (!file || result != 0 || !xattr)
+		return;
+
+	file = get_real_file(file);
+	if (!file)
 		return;
 
 	kfree(file->f_signature);
@@ -316,6 +319,10 @@ static void proca_hook_file_skipped(struct task_struct *task,
 		return;
 
 	if (file->f_signature)
+		return;
+
+	file = get_real_file(file);
+	if (!file)
 		return;
 
 	dentry = file->f_path.dentry;
@@ -345,7 +352,7 @@ static void proca_hook_task_forked(struct task_struct *parent,
 	if (!parent || !child)
 		return;
 
-	target_task_descr = proca_table_get_by_pid(&g_proca_table, parent->pid);
+	target_task_descr = proca_table_get_by_task(&g_proca_table, parent);
 	if (!target_task_descr)
 		return;
 
@@ -368,8 +375,7 @@ static void proca_task_free_hook(struct task_struct *task)
 {
 	struct proca_task_descr *target_task_descr = NULL;
 
-	target_task_descr = proca_table_remove_by_pid(&g_proca_table,
-						      task->pid);
+	target_task_descr = proca_table_remove_by_task(&g_proca_table, task);
 
 	destroy_proca_task_descr(target_task_descr);
 }
@@ -405,7 +411,7 @@ int proca_get_task_cert(const struct task_struct *task,
 
 	BUG_ON(!task || !cert || !cert_size);
 
-	task_descr = proca_table_get_by_pid(&g_proca_table, task->pid);
+	task_descr = proca_table_get_by_task(&g_proca_table, task);
 	if (!task_descr)
 		return -ESRCH;
 

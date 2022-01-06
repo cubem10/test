@@ -1,7 +1,7 @@
 /*
  * Neighbor Awareness Networking
  *
- * Copyright (C) 1999-2019, Broadcom.
+ * Copyright (C) 1999-2020, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: wl_cfgnan.h 830995 2019-07-19 05:49:30Z $
+ * $Id: wl_cfgnan.h 873848 2020-04-17 09:33:49Z $
  */
 
 #ifndef _wl_cfgnan_h_
@@ -73,7 +73,7 @@
 #define WL_AVAIL_BANDWIDTH_5G	WL_CHANSPEC_BW_80
 #define NAN_RANGING_PERIOD WL_AVAIL_PERIOD_1024
 #define NAN_SYNC_DEF_AWAKE_DW	1
-#define NAN_RNG_TERM_FLAG_NONE 0
+#define NAN_RNG_TERM_FLAG_NONE	0
 
 #define NAN_BLOOM_LENGTH_DEFAULT        240u
 #define NAN_SRF_MAX_MAC (NAN_BLOOM_LENGTH_DEFAULT / ETHER_ADDR_LEN)
@@ -165,7 +165,11 @@
 #define NAN_SVC_INST_SIZE 32u
 #define NAN_START_STOP_TIMEOUT	5000
 #define NAN_MAX_NDP_PEER 8u
-#define NAN_DISABLE_CMD_DELAY	2000u
+#define NAN_DISABLE_CMD_DELAY			530u
+#define NAN_WAKELOCK_TIMEOUT			(NAN_DISABLE_CMD_DELAY + 100u)
+
+#define NAN_NMI_RAND_PVT_CMD_VENDOR		(1 << 31)
+#define NAN_NMI_RAND_CLUSTER_MERGE_ENAB		(1 << 30)
 
 #ifdef WL_NAN_DEBUG
 #define NAN_MUTEX_LOCK() {WL_DBG(("Mutex Lock: Enter: %s\n", __FUNCTION__)); \
@@ -205,6 +209,7 @@
 #define	NAN_ATTR_IF_ADDR_CONFIG			(1<<26)
 #define	NAN_ATTR_OUI_CONFIG			(1<<27)
 #define	NAN_ATTR_SUB_SID_BEACON_CONFIG		(1<<28)
+#define NAN_ATTR_DISC_BEACON_INTERVAL		(1<<29)
 #define NAN_IOVAR_NAME_SIZE	4u
 #define NAN_XTLV_ID_LEN_SIZE OFFSETOF(bcm_xtlv_t, data)
 #define NAN_RANGING_INDICATE_CONTINUOUS_MASK   0x01
@@ -212,14 +217,25 @@
 #define NAN_RNG_REQ_ACCEPTED_BY_HOST    1
 #define NAN_RNG_REQ_REJECTED_BY_HOST    0
 
+#define NAN_RNG_REQ_ACCEPTED_BY_PEER	0
+#define NAN_RNG_REQ_REJECTED_BY_PEER	1
+
 #define NAN_RNG_GEOFENCE_MAX_RETRY_CNT	3u
+
+/*
+* Discovery Beacon Interval config,
+* Default value is 128 msec in 2G DW and 176 msec in 2G/5G DW.
+*/
+#define NAN_DISC_BCN_INTERVAL_2G_DEF 128u
+#define NAN_DISC_BCN_INTERVAL_5G_DEF 176u
 
 typedef uint32 nan_data_path_id;
 
 typedef enum nan_range_status {
 	NAN_RANGING_INVALID = 0,
 	NAN_RANGING_REQUIRED = 1,
-	NAN_RANGING_IN_PROGRESS = 2
+	NAN_RANGING_SETUP_IN_PROGRESS = 2,
+	NAN_RANGING_SESSION_IN_PROGRESS = 3
 } nan_range_status_t;
 
 typedef enum nan_range_role {
@@ -238,6 +254,13 @@ typedef struct nan_svc_inst {
 
 /* Range Status Flag bits for svc info */
 #define SVC_RANGE_REP_EVENT_ONCE 0x01
+
+#define NAN_RANGING_SETUP_IS_IN_PROG(status) \
+	((status) == NAN_RANGING_SETUP_IN_PROGRESS)
+
+#define NAN_RANGING_IS_IN_PROG(status) \
+	(((status) == NAN_RANGING_SETUP_IN_PROGRESS) || \
+	((status) == NAN_RANGING_SESSION_IN_PROGRESS))
 
 typedef struct nan_svc_info {
 	bool valid;
@@ -493,6 +516,9 @@ typedef struct nan_config_cmd_data {
 	uint8 disc_ind_cfg;	/* Discovery Ind cfg */
 	uint8 csid;	/* cipher suite type */
 	uint32 nmi_rand_intvl; /* nmi randomization interval */
+	uint8 enable_merge;
+	wl_nan_disc_bcn_interval_t disc_bcn_interval;
+	uint32 dw_early_termination;
 } nan_config_cmd_data_t;
 
 typedef struct nan_event_hdr {
@@ -665,7 +691,8 @@ extern int wl_cfgnan_set_vars_cbfn(void *ctx, const uint8 *tlv_buf,
 	uint16 type, uint16 len);
 extern int wl_cfgnan_config_eventmask(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 	uint8 event_ind_flag, bool disable_events);
-extern int wl_cfgnan_check_nan_disable_pending(struct bcm_cfg80211 *cfg, bool force_disable);
+extern int wl_cfgnan_check_nan_disable_pending(struct bcm_cfg80211 *cfg,
+	bool force_disable, bool is_sync_reqd);
 extern int wl_cfgnan_start_handler(struct net_device *ndev,
 	struct bcm_cfg80211 *cfg, nan_config_cmd_data_t *cmd_data, uint32 nan_attr_mask);
 extern int wl_cfgnan_stop_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg);
@@ -749,14 +776,17 @@ void wl_cfgnan_process_range_report(struct bcm_cfg80211 *cfg,
 	wl_nan_ev_rng_rpt_ind_t *range_res);
 #endif /* RTT_SUPPORT */
 int wl_cfgnan_cancel_ranging(struct net_device *ndev,
-	struct bcm_cfg80211 *cfg, uint8 range_id, uint8 flags, uint32 *status);
+	struct bcm_cfg80211 *cfg, uint8 *range_id, uint8 flags, uint32 *status);
 bool wl_cfgnan_ranging_allowed(struct bcm_cfg80211 *cfg);
 uint8 wl_cfgnan_cancel_rng_responders(struct net_device *ndev,
 	struct bcm_cfg80211 *cfg);
 extern int wl_cfgnan_get_status(struct net_device *ndev, wl_nan_conf_status_t *nan_status);
+extern int wl_cfgnan_get_stats(struct bcm_cfg80211 *cfg);
 extern void wl_cfgnan_update_dp_info(struct bcm_cfg80211 *cfg, bool add,
 	nan_data_path_id ndp_id);
 nan_status_type_t wl_cfgvendor_brcm_to_nanhal_status(int32 vendor_status);
+int wl_cfgnan_set_enable_merge(struct net_device *ndev,
+	struct bcm_cfg80211 *cfg, uint8 enable, uint32 *status);
 
 typedef enum {
 	NAN_ATTRIBUTE_HEADER                            = 100,
@@ -883,7 +913,13 @@ typedef enum {
 	NAN_ATTRIBUTE_EVENT_MASK			= 218,
 	NAN_ATTRIBUTE_SUB_SID_BEACON                    = 219,
 	NAN_ATTRIBUTE_RANDOMIZATION_INTERVAL            = 220,
-	NAN_ATTRIBUTE_CMD_RESP_DATA			= 221
+	NAN_ATTRIBUTE_CMD_RESP_DATA			= 221,
+	NAN_ATTRIBUTE_CMD_USE_NDPE			= 222,
+	NAN_ATTRIBUTE_ENABLE_MERGE			= 223,
+	NAN_ATTRIBUTE_DISCOVERY_BEACON_INTERVAL		= 224,
+	NAN_ATTRIBUTE_NSS				= 225,
+	NAN_ATTRIBUTE_ENABLE_RANGING			= 226,
+	NAN_ATTRIBUTE_DW_EARLY_TERM			= 227
 } NAN_ATTRIBUTE;
 
 enum geofence_suspend_reason {

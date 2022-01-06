@@ -24,13 +24,13 @@
 #include <linux/alarmtimer.h>
 #include "../sec_charging_common.h"
 
-#define MFC_FW_BIN_VERSION			0x138
-#define MFC_FW_BIN_FULL_VERSION		0x01380000
+#define MFC_FW_BIN_VERSION			0x144
+#define MFC_FW_BIN_FULL_VERSION		0x01440000
 #define MFC_FW_BIN_VERSION_ADDR		0x0084 //fw rev85 address
 #define MTP_MAX_PROGRAM_SIZE 0x4000
 #define MTP_VERIFY_ADDR			0x0000
 #define MTP_VERIFY_SIZE			0x4680
-#define MTP_VERIFY_CHKSUM		0x02D26
+#define MTP_VERIFY_CHKSUM		0x0274
 
 #define MFC_FLASH_FW_HEX_PATH		"mfc/mfc_fw_flash.bin"
 #define MFC_FW_SDCARD_BIN_PATH		"/sdcard/mfc_fw_flash.bin"
@@ -149,6 +149,8 @@
 /* TX Min Operating Frequency = 60 MHz/value, default is 110kHz (60MHz/0x222=110) */
 #define MFC_TX_MIN_OP_FREQ_L_REG			0xD4 /* default 0x22 */
 #define MFC_TX_MIN_OP_FREQ_H_REG			0xD5 /* default 0x02 */
+
+#define TX_MIN_OP_FREQ_DEFAULT	113
 /* TX Max Operating Frequency = 60 MHz/value, default is 148kHz (60MHz/0x196=148) */
 #define MFC_TX_MAX_OP_FREQ_L_REG			0xD6 /* default 0x96 */
 #define MFC_TX_MAX_OP_FREQ_H_REG			0xD7 /* default 0x01 */
@@ -334,6 +336,10 @@
 #define TX_ID_DREAM_STAND			0x31
 #define TX_ID_DREAM_DOWN			0x14
 #define TX_ID_UNO_TX				0x72
+#define TX_ID_UNO_TX_B0				0x80
+#define TX_ID_UNO_TX_B1				0x81
+#define TX_ID_UNO_TX_B2				0x82
+#define TX_ID_UNO_TX_MAX			0x9F
 
 #define TX_ID_AUTH_PAD				0xA0
 #define TX_ID_DAVINCI_PAD_V			0xA1
@@ -628,15 +634,16 @@ enum {
 };
 
 enum {
-    MFC_ADC_VOUT = 0,
-    MFC_ADC_VRECT,
-    MFC_ADC_RX_IOUT,
-    MFC_ADC_DIE_TEMP,
-    MFC_ADC_OP_FRQ,
-    MFC_ADC_TX_OP_FRQ,
-    MFC_ADC_PING_FRQ,
-    MFC_ADC_TX_IOUT,
-    MFC_ADC_TX_VOUT,
+	MFC_ADC_VOUT = 0,
+	MFC_ADC_VRECT,
+	MFC_ADC_RX_IOUT,
+	MFC_ADC_DIE_TEMP,
+	MFC_ADC_OP_FRQ,
+	MFC_ADC_TX_OP_FRQ,
+	MFC_ADC_TX_MIN_OP_FRQ,
+	MFC_ADC_PING_FRQ,
+	MFC_ADC_TX_IOUT,
+	MFC_ADC_TX_VOUT,
 };
 
 enum {
@@ -1049,6 +1056,8 @@ struct mfc_charger_platform_data {
 	u32 oc_fod1;
 	u32 phone_fod_threshold;
 	u32 gear_ping_freq;
+	u32 gear_min_op_freq;
+	u32 gear_min_op_freq_delay;
 	bool wpc_vout_ctrl_lcd_on;
 };
 
@@ -1063,6 +1072,7 @@ struct mfc_charger_data {
 	struct device					*dev;
 	mfc_charger_platform_data_t 	*pdata;
 	struct mutex io_lock;
+	struct mutex wpc_en_lock;
 	const struct firmware *firm_data_bin;
 
 	int wc_w_state;
@@ -1074,6 +1084,7 @@ struct mfc_charger_data {
 	struct wake_lock wpc_update_lock;
 	struct wake_lock wpc_opfq_lock;
 	struct wake_lock wpc_tx_opfq_lock;
+	struct wake_lock wpc_tx_min_opfq_lock;
 	struct wake_lock wpc_afc_vout_lock;
 	struct wake_lock wpc_vout_mode_lock;
 	struct wake_lock wpc_rx_det_lock;
@@ -1098,6 +1109,7 @@ struct mfc_charger_data {
 	struct delayed_work wpc_i2c_error_work;
 	struct delayed_work	wpc_rx_type_det_work;
 	struct delayed_work	wpc_rx_connection_work;
+	struct delayed_work wpc_tx_min_op_freq_work;
 	struct delayed_work wpc_tx_op_freq_work;
 	struct delayed_work wpc_tx_phm_work;
 	struct delayed_work wpc_vrect_check_work;
@@ -1148,5 +1160,6 @@ struct mfc_charger_data {
 	u8 device_event;
 	int i2c_error_count;
 	unsigned long gear_start_time;
+	int wpc_en_flag;
 };
 #endif /* __WIRELESS_CHARGER_MFC_H */

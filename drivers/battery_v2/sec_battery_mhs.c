@@ -21,6 +21,7 @@
 #endif
 
 bool sleep_mode = false;
+bool dt_need_overwrite = false;
 
 static enum power_supply_property sec_battery_props[] = {
 	POWER_SUPPLY_PROP_STATUS,
@@ -974,10 +975,6 @@ int sec_bat_set_charge(struct sec_battery_info *battery,
 #if defined(CONFIG_BATTERY_CISD)
 		battery->usb_overheat_check = false;
 		battery->cisd.ab_vbat_check_count = 0;
-		if (chg_mode == SEC_BAT_CHG_MODE_BUCK_OFF) {
-			battery->cisd.data[CISD_DATA_BUCK_OFF]++;
-			battery->cisd.data[CISD_DATA_BUCK_OFF_PER_DAY]++;
-		}
 #endif
 	}
 
@@ -1719,6 +1716,38 @@ void sec_bat_aging_check(struct sec_battery_info *battery)
 		 prev_step, battery->pdata->age_step, battery->batt_cycle);
 }
 #endif
+
+void sec_bat_check_battery_health(struct sec_battery_info *battery)
+{
+	union power_supply_propval value;
+	battery_health_condition state;
+	int i, battery_health;
+
+	/* check to support ASoC and Cycle */
+	psy_do_property(battery->pdata->fuelgauge_name, get,
+		POWER_SUPPLY_PROP_ENERGY_FULL, value);
+#if !defined(CONFIG_BATTERY_AGE_FORECAST)
+	value.intval = -1;
+#endif
+	if (value.intval <= 0 || battery->pdata->health_condition == NULL) {
+		pr_err("%s: does not support cycle or asoc or health_condition\n", __func__);
+		return;
+	}
+	/* Checking Cycle and ASoC */
+	state.cycle = state.asoc = BATTERY_HEALTH_BAD;
+	for (i = BATTERY_HEALTH_MAX - 1; i >= 0; i--) {
+		if (battery->pdata->health_condition[i].cycle >= (battery->batt_cycle % 10000))
+			state.cycle = i + BATTERY_HEALTH_GOOD;
+		if (battery->pdata->health_condition[i].asoc <= battery->batt_asoc)
+			state.asoc = i + BATTERY_HEALTH_GOOD;
+	}
+	battery_health = max(state.cycle, state.asoc);
+	pr_info("%s: update battery_health(%d), (%d - %d)\n",
+		__func__, battery_health, state.cycle, state.asoc);
+	/* Update battery health */
+	sec_bat_set_misc_event(battery,
+		(battery_health << BATTERY_HEALTH_SHIFT), BATT_MISC_EVENT_BATTERY_HEALTH);
+}
 
 static bool sec_bat_temperature(
 				struct sec_battery_info *battery)
@@ -4150,9 +4179,6 @@ static int sec_bat_set_property(struct power_supply *psy,
 				}
 				mutex_unlock(&battery->wclock);
 			}
-#if defined(CONFIG_BATTERY_CISD)
-			increase_cisd_count(CISD_DATA_DROP_VALUE);
-#endif
 			break;
 		default:
 			return -EINVAL;
@@ -5988,7 +6014,7 @@ static int sec_battery_probe(struct platform_device *pdev)
 	battery->batt_cycle = -1;
 	battery->pdata->age_step = 0;
 #endif
-
+	battery->batt_asoc = 100;
 	battery->health_change = false;
 
 	/* Check High Voltage charging option for wireless charging */

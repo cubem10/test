@@ -21,6 +21,7 @@
 #include <linux/fs_struct.h>	/* get_fs_root et.al. */
 #include <linux/fsnotify.h>	/* fsnotify_vfsmount_delete */
 #include <linux/uaccess.h>
+#include <linux/file.h>
 #include <linux/proc_ns.h>
 #include <linux/magic.h>
 #include <linux/bootmem.h>
@@ -33,8 +34,11 @@
 #include "internal.h"
 
 #ifdef CONFIG_RKP_NS_PROT
-#define KDP_MOUNT_SYSTEM "/root" //system-as-root
+#define KDP_MOUNT_SYSTEM "/system"
 #define KDP_MOUNT_SYSTEM_LEN strlen(KDP_MOUNT_SYSTEM)
+
+#define KDP_MOUNT_SYSTEM2 "/root" //system-as-root
+#define KDP_MOUNT_SYSTEM2_LEN strlen(KDP_MOUNT_SYSTEM2)
 
 #define KDP_MOUNT_PRODUCT "/product"
 #define KDP_MOUNT_PRODUCT_LEN strlen(KDP_MOUNT_PRODUCT)
@@ -42,8 +46,23 @@
 #define KDP_MOUNT_VENDOR "/vendor"
 #define KDP_MOUNT_VENDOR_LEN strlen(KDP_MOUNT_VENDOR)
 
-#define KDP_MOUNT_ART "/com.android.runtime"
+#define KDP_MOUNT_ART "/apex/com.android.runtime"
 #define KDP_MOUNT_ART_LEN strlen(KDP_MOUNT_ART)
+
+#define KDP_MOUNT_ART2 "/com.android.runtime@1"
+#define KDP_MOUNT_ART2_LEN strlen(KDP_MOUNT_ART2)
+
+#define KDP_MOUNT_CRYPT "/com.android.conscrypt"
+#define KDP_MOUNT_CRYPT_LEN strlen(KDP_MOUNT_CRYPT)
+
+#define KDP_MOUNT_DEX2OAT "/com.android.art@1"
+#define KDP_MOUNT_DEX2OAT_LEN strlen(KDP_MOUNT_DEX2OAT)
+
+#define KDP_MOUNT_ADBD "/com.android.adbd@300900700"
+#define KDP_MOUNT_ADBD_LEN strlen(KDP_MOUNT_ADBD)
+
+#define ART_ALLOW 2
+#define DEX2OAT_ALLOW 1
 #endif /*CONFIG_RKP_NS_PROT */
 
 /* Maximum number of mounts in a mount namespace */
@@ -90,11 +109,14 @@ static struct hlist_head *mount_hashtable __read_mostly;
 static struct hlist_head *mountpoint_hashtable __read_mostly;
 static struct kmem_cache *mnt_cache __read_mostly;
 #ifdef CONFIG_RKP_NS_PROT
-struct super_block *sys_sb __kdp_ro = NULL;
-struct super_block *odm_sb __kdp_ro = NULL;
-struct super_block *vendor_sb __kdp_ro = NULL;
-struct super_block *art_sb __kdp_ro = NULL;
-struct super_block *rootfs_sb __kdp_ro = NULL;
+struct super_block *sys_sb	__kdp_ro = NULL;
+struct super_block *odm_sb	__kdp_ro = NULL;
+struct super_block *vendor_sb	__kdp_ro = NULL;
+struct super_block *art_sb 	__kdp_ro = NULL;
+struct super_block *rootfs_sb	__kdp_ro = NULL;
+struct super_block *crypt_sb	__kdp_ro = NULL;
+struct super_block *dex2oat_sb	__kdp_ro = NULL;
+struct super_block *adbd_sb		__kdp_ro = NULL;
 static struct kmem_cache *vfsmnt_cache __read_mostly;
 /* Populate all superblocks required for NS Protection */
 
@@ -104,8 +126,14 @@ enum kdp_sb {
 	KDP_SB_SYS,
 	KDP_SB_VENDOR,
 	KDP_SB_ART,
+	KDP_SB_CRYPT,
+	KDP_SB_DEX2OAT,
+	KDP_SB_ADBD,
 	KDP_SB_MAX
 };
+
+int art_count = 0;
+int dex2oat_count = 0;
 #endif /*CONFIG_RKP_NS_PROT */
 
 static DECLARE_RWSEM(namespace_sem);
@@ -149,7 +177,7 @@ static const char *umount_exit_str[UMOUNT_STATUS_MAX] = {
 };
 
 static const char *exception_process[] = {
-	"main", "usap32", "usap64", NULL,
+	"main", "ch_zygote", "usap32", "usap64", NULL,
 };
 
 static inline void sys_umount_trace_set_status(unsigned int status)
@@ -1535,6 +1563,12 @@ static void delayed_mntput(struct work_struct *unused)
 }
 static DECLARE_DELAYED_WORK(delayed_mntput_work, delayed_mntput);
 
+void flush_delayed_mntput_wait(void)
+{
+	delayed_mntput(NULL);
+	flush_delayed_work(&delayed_mntput_work);
+}
+
 static void mntput_no_expire(struct mount *mnt)
 {
 	rcu_read_lock();
@@ -2122,6 +2156,7 @@ SYSCALL_DEFINE2(umount, char __user *, name, int, flags)
 	struct mount *mnt;
 	int retval;
 	int lookup_flags = 0;
+	bool user_request = !(current->flags & PF_KTHREAD);
 
 	if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW))
 		return -EINVAL;
@@ -2155,6 +2190,10 @@ SYSCALL_DEFINE2(umount, char __user *, name, int, flags)
 	if (flags & MNT_FORCE && !capable(CAP_SYS_ADMIN))
 		goto dput_and_out;
 
+	/* flush delayed_fput to put mnt_count */
+	if (user_request)
+		flush_delayed_fput_wait();
+
 	retval = do_umount(mnt, flags);
 dput_and_out:
 	/* we mustn't call path_put() as that would clear mnt_expiry_mark */
@@ -2162,6 +2201,31 @@ dput_and_out:
 	mntput_no_expire(mnt);
 	if (!retval)
 		sys_umount_trace_print(mnt, flags);
+
+	if (!user_request)
+		goto out;
+
+	if (!retval) {
+		/*
+		 * If the last delayed_fput() is called during do_umount()
+		 * and makes mnt_count zero, we need to guarantee to register
+		 * delayed_mntput by waiting for delayed_fput work again.
+		 */
+		flush_delayed_fput_wait();
+
+		/* flush delayed_mntput_work to put sb->s_active */
+		flush_delayed_mntput_wait();
+	}
+	if (!retval || (flags & MNT_FORCE)) {
+		/* filesystem needs to handle unclosed namespaces */
+#ifdef CONFIG_RKP_NS_PROT
+		if (mnt->mnt->mnt_sb->s_op->umount_end)
+			mnt->mnt->mnt_sb->s_op->umount_end(mnt->mnt->mnt_sb, flags);
+#else
+		if (mnt->mnt.mnt_sb->s_op->umount_end)
+			mnt->mnt.mnt_sb->s_op->umount_end(mnt->mnt.mnt_sb, flags);
+#endif
+	}
 out:
 	return retval;
 }
@@ -3038,10 +3102,14 @@ unlock:
 }
 
 #ifdef CONFIG_RKP_NS_PROT
-static void rkp_populate_sb(char *mount_point, struct vfsmount *mnt) 
+static void rkp_populate_sb(char *mount_point, struct vfsmount *mnt)
 {
+	struct super_block *sb = NULL;
+
 	if (!mount_point || !mnt)
 		return;
+
+	sb = mnt->mnt_sb;
 
 	if (!odm_sb &&
 		!strncmp(mount_point, KDP_MOUNT_PRODUCT, KDP_MOUNT_PRODUCT_LEN)) {
@@ -3049,15 +3117,34 @@ static void rkp_populate_sb(char *mount_point, struct vfsmount *mnt)
 	} else if (!sys_sb &&
 		!strncmp(mount_point, KDP_MOUNT_SYSTEM, KDP_MOUNT_SYSTEM_LEN)) {
 		uh_call(UH_APP_RKP, RKP_KDP_X56, (u64)&sys_sb, (u64)mnt, KDP_SB_SYS, 0);
+	} else if (!sys_sb &&
+		!strncmp(mount_point, KDP_MOUNT_SYSTEM2, KDP_MOUNT_SYSTEM2_LEN)) {
+		uh_call(UH_APP_RKP, RKP_KDP_X56, (u64)&sys_sb, (u64)mnt, KDP_SB_SYS, 0);
 	} else if (!vendor_sb &&
 		!strncmp(mount_point, KDP_MOUNT_VENDOR, KDP_MOUNT_VENDOR_LEN)) {
 		uh_call(UH_APP_RKP, RKP_KDP_X56, (u64)&vendor_sb, (u64)mnt, KDP_SB_VENDOR, 0);
+	} else if(!crypt_sb && strstr(mount_point, KDP_MOUNT_CRYPT)) {
+		uh_call(UH_APP_RKP, RKP_KDP_X56, (u64)&crypt_sb, (u64)mnt, KDP_SB_CRYPT, 0);
+	} else if(!dex2oat_sb && !strncmp(mount_point, KDP_MOUNT_DEX2OAT, KDP_MOUNT_DEX2OAT_LEN)) {
+		uh_call(UH_APP_RKP, RKP_KDP_X56, (u64)&dex2oat_sb, (u64)mnt, KDP_SB_DEX2OAT, 0);
+	} else if((dex2oat_count < DEX2OAT_ALLOW) && !strncmp(mount_point, KDP_MOUNT_DEX2OAT, KDP_MOUNT_DEX2OAT_LEN)) {
+		uh_call(UH_APP_RKP, RKP_KDP_X56, (u64)&dex2oat_sb, (u64)mnt, KDP_SB_DEX2OAT, 0);
+		dex2oat_count++;
+	} else if (!adbd_sb &&
+		!strncmp(mount_point, KDP_MOUNT_ADBD, KDP_MOUNT_ADBD_LEN - 1)) {
+		uh_call(UH_APP_RKP, RKP_KDP_X56, (u64)&adbd_sb, (u64)mnt, KDP_SB_ADBD, 0);
 	} else if (!art_sb &&
-		!strncmp(mount_point, KDP_MOUNT_ART, KDP_MOUNT_ART_LEN-1)) {
+		!strncmp(mount_point, KDP_MOUNT_ART, KDP_MOUNT_ART_LEN - 1)) {
 		uh_call(UH_APP_RKP, RKP_KDP_X56, (u64)&art_sb, (u64)mnt, KDP_SB_ART, 0);
+	} else if ((art_count < ART_ALLOW) &&
+		!strncmp(mount_point, KDP_MOUNT_ART2, KDP_MOUNT_ART2_LEN - 1)) {
+		if (art_count)
+			uh_call(UH_APP_RKP, RKP_KDP_X56, (u64)&art_sb, (u64)mnt, KDP_SB_ART, 0);
+		art_count++;
 	}
 }
 #endif /*CONFIG_RKP_NS_PROT*/
+
 static bool mount_too_revealing(struct vfsmount *mnt, int *new_mnt_flags);
 
 /*
@@ -3105,7 +3192,8 @@ static int do_new_mount(struct path *path, const char *fstype, int sb_flags,
 		return -ENOMEM;
 	}
 	dir_name = dentry_path_raw(path->dentry, buf, PATH_MAX);
-	if(!sys_sb || !odm_sb || !vendor_sb || !art_sb) 
+	if (!sys_sb || !odm_sb || !vendor_sb || !crypt_sb || !dex2oat_sb
+			|| (dex2oat_count < DEX2OAT_ALLOW) || !adbd_sb || !art_sb || (art_count < ART_ALLOW))
 		rkp_populate_sb(dir_name, mnt);
 	kfree(buf);
 #endif
